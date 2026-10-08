@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Splash Screen - Chat IA</title>
+
+    <!-- Estilos da Splash -->
+    <link rel="stylesheet" href="splash.css">
+
+    <!-- GSAP Biblioteca via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+</head>
+<body>
+<div class="splash-container">
+    <!-- Elemento Visual Principal (Logo) -->
+    <div id="logo" class="logo-box">
+        <div class="logo-icon"></div>
+    </div>
+
+    <!-- Nome da Aplicação -->
+    <h1 id="title" class="app-title">Luna Chat</h1>
+
+    <!-- Elemento Secundário (Tagline / Status) -->
+    <p id="subtitle" class="app-subtitle">Sua base de conhecimento inteligente</p>
+
+    <!-- Indicador de Carregamento -->
+    <div id="loader" class="loader-bar">
+        <div class="loader-progress"></div>
+    </div>
+</div>
+
+<!-- Lógica de Animação GSAP -->
+<script src="splash.js"></script>
+</body>
+</html>
