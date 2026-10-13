@@ -2,6 +2,7 @@ package org.example;
 
 import javafx.animation.PauseTransition;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.concurrent.Worker;
 import javafx.scene.Scene;
 import javafx.scene.web.WebEngine;
@@ -16,7 +17,7 @@ import java.net.URL;
 import org.example.controlle.UsuarioControlle;
 import org.example.repository.UsuarioRepositoryMongo;
 import org.example.service.UsuarioService;
-import org.example.View.RegisterView;
+import org.example.View.LoginView;
 
 public class Main extends Application {
 
@@ -24,8 +25,8 @@ public class Main extends Application {
 
     @Override
     public void start(Stage stage) {
-        // Bloqueia o encerramento automático da aplicação pela JVM/Maven
-        javafx.application.Platform.setImplicitExit(false);
+        // Mantém o processo JavaFX ativo durante a troca de Scenes
+        Platform.setImplicitExit(false);
 
         stage.initStyle(StageStyle.UNDECORATED);
 
@@ -61,11 +62,11 @@ public class Main extends Application {
         stage.centerOnScreen();
         stage.show();
 
-        // Fallback ajustado para dar tempo de ver a animação GSAP
+        // Temporizador de segurança caso a animação do JS não chame o JavaBridge
         PauseTransition fallbackTimer = new PauseTransition(Duration.seconds(6));
         fallbackTimer.setOnFinished(e -> {
             if (!transitionDone) {
-                System.out.println("-> Temporizador acionado. Transicionando para RegisterView...");
+                System.out.println("-> Temporizador acionado. Transicionando para LoginView...");
                 bridge.onAnimationEnd();
             }
         });
@@ -85,21 +86,22 @@ public class Main extends Application {
             }
             transitionDone = true;
 
-            javafx.application.Platform.runLater(() -> {
+            Platform.runLater(() -> {
                 try {
-                    System.out.println("-> Transicionando da Splash HTML para RegisterView...");
+                    System.out.println("-> Transicionando da Splash HTML para LoginView...");
 
                     UsuarioRepositoryMongo repo = new UsuarioRepositoryMongo();
                     UsuarioService service = new UsuarioService(repo);
                     UsuarioControlle controller = new UsuarioControlle(service);
 
-                    RegisterView registerView = new RegisterView(controller);
-                    registerView.trocarParaCadastro(stage);
+                    // Abre a tela de Login
+                    LoginView loginView = new LoginView(controller);
+                    loginView.trocarParaLogin(stage);
 
-                    System.out.println("-> RegisterView exibida na mesma janela com sucesso!");
+                    System.out.println("-> LoginView exibida na mesma janela com sucesso!");
 
                 } catch (Exception e) {
-                    System.err.println("❌ Erro ao abrir a tela de cadastro:");
+                    System.err.println("❌ Erro ao abrir a tela de login:");
                     e.printStackTrace();
                     transitionDone = false;
                 }

@@ -12,23 +12,36 @@ public class UsuarioService {
     }
 
     public void cadastrar(Usuario usuario, String confirmacao) {
-
         if (usuario.getNome() == null || usuario.getNome().isBlank()) {
             throw new RuntimeException("Nome é obrigatório");
         }
-
         if (usuario.getEmail() == null || usuario.getEmail().isBlank()) {
             throw new RuntimeException("E-mail é obrigatório");
         }
-
         if (usuario.getSenha() == null || usuario.getSenha().isBlank()) {
             throw new RuntimeException("Senha é obrigatória");
         }
-
         if (!usuario.getSenha().equals(confirmacao)) {
             throw new RuntimeException("Senhas diferentes");
         }
 
         usuarioRepository.salvar(usuario);
+    }
+
+    public Usuario autenticar(String email, String senha) {
+        if (email == null || email.isBlank()) {
+            throw new RuntimeException("E-mail é obrigatório");
+        }
+        if (senha == null || senha.isBlank()) {
+            throw new RuntimeException("Senha é obrigatória");
+        }
+
+        Usuario usuario = usuarioRepository.buscarPorEmail(email);
+
+        if (usuario == null || !usuario.getSenha().equals(senha)) {
+            throw new RuntimeException("E-mail ou senha inválidos");
+        }
+
+        return usuario;
     }
 }
