@@ -7,6 +7,8 @@ import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.example.controlle.UsuarioControlle;
@@ -21,6 +23,14 @@ public class LoginView {
     }
 
     public void trocarParaLogin(Stage stage) {
+        BorderPane root = new BorderPane();
+        root.setStyle("-fx-background-color: #0f172a; -fx-border-color: #334155; -fx-border-width: 1px;");
+
+        // 1. Adiciona a barra superior contínua (WindowBar)
+        HBox topBar = WindowBar.criarBarraSuperior(stage, "Luna IA");
+        root.setTop(topBar);
+
+        // 2. Elementos do Formulário
         Label lblTitle = new Label("Entrar no Luna IA");
         lblTitle.getStyleClass().add("title");
 
@@ -38,6 +48,7 @@ public class LoginView {
 
         Label lblStatus = new Label();
 
+        // Ação do Botão de Login
         btnEntrar.setOnAction(e -> {
             try {
                 String email = txtEmail.getText();
@@ -50,7 +61,7 @@ public class LoginView {
                     return;
                 }
 
-                // 1. Autentica o usuário no MongoDB
+                // Autentica o usuário no MongoDB
                 Usuario usuarioAutenticado = usuarioControlle.autenticar(email, senha);
 
                 lblStatus.getStyleClass().removeAll("label-error");
@@ -59,7 +70,7 @@ public class LoginView {
 
                 System.out.println("-> Usuário autenticado: " + usuarioAutenticado.getNome());
 
-                // 2. REDIRECIONA PARA A CHATVIEW
+                // Redireciona para a ChatView
                 ChatView chatView = new ChatView(usuarioAutenticado);
                 chatView.exibir(stage);
 
@@ -70,17 +81,20 @@ public class LoginView {
             }
         });
 
+        // Ação para navegar até a tela de Cadastro
         linkCadastro.setOnAction(e -> {
             RegisterView registerView = new RegisterView(usuarioControlle);
             registerView.trocarParaCadastro(stage);
         });
 
+        // Centraliza o formulário no meio da tela
         VBox form = new VBox(lblTitle, txtEmail, txtSenha, btnEntrar, linkCadastro, lblStatus);
         form.getStyleClass().add("Form-container");
         form.setMaxWidth(350);
 
-        VBox root = new VBox(form);
-        root.setAlignment(Pos.CENTER);
+        VBox centerBox = new VBox(form);
+        centerBox.setAlignment(Pos.CENTER);
+        root.setCenter(centerBox);
 
         Scene scene = new Scene(root, 450, 520);
 
