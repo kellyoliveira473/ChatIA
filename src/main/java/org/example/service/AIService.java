@@ -10,28 +10,28 @@ import org.json.JSONObject;
 
 public class AIService {
 
-    // Substitua pela sua chave de API da Groq (começa com gsk_...)
-    private static final String GROQ_API_KEY = "SUA_CHAVE_GROQ_AQUI";
+    // ⚠️ COLE SUA CHAVE DA GROQ AQUI (deve começar com gsk_...)
+    private static final String GROQ_API_KEY =
+            System.getenv("GROQ_API_KEY");
     private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
     private final HttpClient httpClient;
 
     public AIService() {
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
+                .connectTimeout(Duration.ofSeconds(15))
                 .build();
     }
 
-    /**
-     * Envia a mensagem do utilizador para a API da Groq considerando o tom/personalidade escolhido.
-     */
     public String gerarrResposta(String mensagemUsuario, String personalidade) throws Exception {
-        // Mensagem de sistema que define o tom/personalidade da Luna IA
+        if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
+            return "Erro: Configure a variável de ambiente GROQ_API_KEY!";
+        }
+        // Prompt de instrução para definir o tom da Luna IA
         JSONObject systemMessage = new JSONObject();
         systemMessage.put("role", "system");
-        systemMessage.put("content", "Você é a Luna IA. Responda sempre adotando um tom estritamente " + personalidade + ".");
+        systemMessage.put("content", "Você é a Luna IA. Responda adotando um tom estritamente " + personalidade + ".");
 
-        // Mensagem enviada pelo utilizador
         JSONObject userMessage = new JSONObject();
         userMessage.put("role", "user");
         userMessage.put("content", mensagemUsuario);
@@ -40,8 +40,8 @@ public class AIService {
         messagesArray.put(systemMessage);
         messagesArray.put(userMessage);
 
-        // Corpo da requisição utilizando o modelo Llama 3 (llama-3.3-70b-versatile ou llama3-8b-8192)
         JSONObject requestBody = new JSONObject();
+        // Modelo atualizado e ativo da Groq
         requestBody.put("model", "llama-3.3-70b-versatile");
         requestBody.put("messages", messagesArray);
         requestBody.put("temperature", 0.7);
@@ -59,13 +59,15 @@ public class AIService {
             JSONObject jsonResponse = new JSONObject(response.body());
             JSONArray choices = jsonResponse.getJSONArray("choices");
             if (choices.length() > 0) {
-                JSONObject messageObj = choices.getJSONObject(0).getJSONObject("message");
-                return messageObj.getString("content");
+                return choices.getJSONObject(0).getJSONObject("message").getString("content");
             }
         } else {
-            System.err.println("Erro na API da Groq (" + response.statusCode() + "): " + response.body());
+            // Imprime no console para facilitar o diagnóstico
+            System.err.println("--- ERRO GROQ API ---");
+            System.err.println("Código HTTP: " + response.statusCode());
+            System.err.println("Resposta: " + response.body());
         }
 
-        return "Desculpe, ocorreu um erro ao se comunicar com a Groq API.";
+        return "Erro (" + response.statusCode() + "): Falha ao comunicar com a Groq API.";
     }
 }
