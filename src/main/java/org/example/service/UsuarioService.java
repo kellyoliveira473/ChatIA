@@ -2,6 +2,7 @@ package org.example.service;
 
 import org.example.model.Usuario;
 import org.example.repository.UsuarioRepository;
+import org.mindrot.jbcrypt.BCrypt;
 
 public class UsuarioService {
 
@@ -22,8 +23,18 @@ public class UsuarioService {
             throw new RuntimeException("Senha é obrigatória");
         }
         if (!usuario.getSenha().equals(confirmacao)) {
-            throw new RuntimeException("Senhas diferentes");
+            throw new RuntimeException("As senhas não coincidem");
         }
+
+        // Verifica se o e-mail já está cadastrado no banco
+        Usuario usuarioExistente = usuarioRepository.buscarPorEmail(usuario.getEmail());
+        if (usuarioExistente != null) {
+            throw new RuntimeException("Este e-mail já está cadastrado.");
+        }
+
+        // Criptografa a senha com jBCrypt antes de salvar no MongoDB
+        String senhaHash = BCrypt.hashpw(usuario.getSenha(), BCrypt.gensalt());
+        usuario.setSenha(senhaHash);
 
         usuarioRepository.salvar(usuario);
     }
@@ -38,7 +49,8 @@ public class UsuarioService {
 
         Usuario usuario = usuarioRepository.buscarPorEmail(email);
 
-        if (usuario == null || !usuario.getSenha().equals(senha)) {
+        // Valida se o usuário existe e se a senha confere com o hash do banco
+        if (usuario == null || !BCrypt.checkpw(senha, usuario.getSenha())) {
             throw new RuntimeException("E-mail ou senha inválidos");
         }
 

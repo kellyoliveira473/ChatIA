@@ -5,6 +5,7 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
+import org.bson.Document;
 import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.PojoCodecProvider;
 
@@ -14,8 +15,6 @@ import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 public class DatabaseConfig {
 
     private static final String DEFAULT_DATABASE_NAME = "chat_ia_db";
-    // URI local padrão para quando MONGODB_URI não estiver no ambiente
-    private static final String DEFAULT_URI = "mongodb://localhost:27017/" + DEFAULT_DATABASE_NAME;
 
     private static MongoClient mongoClient;
     private static MongoDatabase database;
@@ -24,13 +23,12 @@ public class DatabaseConfig {
         if (database == null) {
             String uri = System.getenv("MONGODB_URI");
 
-            // Fallback: se a variável de ambiente estiver vazia, usa a URI padrão local
             if (uri == null || uri.isBlank()) {
-                System.out.println("⚠️ MONGODB_URI não definida no ambiente. Utilizando URI local padrão.");
-                uri = DEFAULT_URI;
+                throw new IllegalStateException(
+                        "MONGODB_URI não definida. Configure a variável de ambiente.");
             }
 
-            // Configura o mapeamento automático de POJOs
+            // Mapeamento automático de POJOs
             CodecRegistry pojoCodecRegistry = fromProviders(
                     PojoCodecProvider.builder().automatic(true).build()
             );
@@ -41,6 +39,13 @@ public class DatabaseConfig {
             );
 
             ConnectionString connectionString = new ConnectionString(uri);
+
+            // Mostra o usuário usado (a senha nunca é impressa)
+            System.out.println("-> Mongo usando usuario: "
+                    + (connectionString.getCredential() != null
+                    ? connectionString.getCredential().getUserName()
+                    : "nenhum"));
+
             MongoClientSettings settings = MongoClientSettings.builder()
                     .applyConnectionString(connectionString)
                     .codecRegistry(codecRegistry)
@@ -53,8 +58,24 @@ public class DatabaseConfig {
                     : DEFAULT_DATABASE_NAME;
 
             database = mongoClient.getDatabase(databaseName);
+
+            testarConexao();
         }
         return database;
+    }
+
+    // Faz uma operação real para forçar a autenticação e mostrar o erro verdadeiro
+    private static void testarConexao() {
+        try {
+            database.runCommand(new Document("ping", 1));
+            System.out.println("-> MongoDB: conectou e autenticou com sucesso!");
+        } catch (Exception e) {
+            Throwable causa = e;
+            while (causa.getCause() != null) {
+                causa = causa.getCause();
+            }
+            System.out.println("-> MongoDB FALHOU: " + causa.getMessage());
+        }
     }
 
     public static void close() {
