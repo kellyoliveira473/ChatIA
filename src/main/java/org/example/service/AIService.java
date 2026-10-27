@@ -12,38 +12,51 @@ import org.example.model.Mensagem;
 
 public class AIService {
 
-    // A chave é lida da variável de ambiente GROQ_API_KEY (nunca escreva a chave no código)
     private static final String GROQ_API_KEY = System.getenv("GROQ_API_KEY");
     private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-    private static final String MODEL = "openai/gpt-oss-120b";
+    // Modelo oficial e ativo da Groq
+    private static final String MODEL = "llama-3.3-70b-versatile";
 
     private final HttpClient httpClient;
 
     public AIService() {
         this.httpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_2) // Força o uso do HTTP/2
+                .version(HttpClient.Version.HTTP_2)
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
     }
 
-    /**
-     * Envia o histórico completo de conversas para a IA manter a memória do chat.
-     */
     public String gerarResposta(List<Mensagem> historico, String personalidade, String idioma) throws Exception {
+        return gerarRespostaComRAG(historico, personalidade, idioma, null);
+    }
+
+    public String gerarRespostaComRAG(List<Mensagem> historico, String personalidade, String idioma, String contextoDocumento) throws Exception {
         if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
             return "Erro: a variável de ambiente GROQ_API_KEY não está definida.";
         }
 
         JSONArray messagesArray = new JSONArray();
 
-        // Mensagem de sistema definindo a personalidade e o idioma
+        StringBuilder conteudoSistema = new StringBuilder();
+        conteudoSistema.append("Você é a Luna IA, uma assistente virtual extremamente inteligente, precisa e direta. ")
+                .append("Adote um tom ")
+                .append(personalidade)
+                .append(". Responda sempre utilizando o idioma: ")
+                .append(idioma)
+                .append(". CONTEXTO TEMPORAL: O ano atual é 2026. Considere dados e fatos atuais até o ano de 2026. ")
+                .append("REGRA ESTRITA DE FORMATAÇÃO: NUNCA utilize asteriscos (*), negritos (**) nem marcadores markdown. Escreva apenas texto puro, limpo e contínuo.");
+
+        if (contextoDocumento != null && !contextoDocumento.isBlank()) {
+            conteudoSistema.append("\n\n[Contexto extraído do documento do usuário]:\n")
+                    .append(contextoDocumento)
+                    .append("\nUtilize as informações acima com máxima precisão para responder.");
+        }
+
         JSONObject systemMessage = new JSONObject();
         systemMessage.put("role", "system");
-        systemMessage.put("content", "Você é a Luna IA. Responda adotando um tom estritamente " + personalidade
-                + ". Responda sempre utilizando o idioma: " + idioma + ".");
+        systemMessage.put("content", conteudoSistema.toString());
         messagesArray.put(systemMessage);
 
-        // Adiciona todo o histórico de mensagens da conversa (Memória)
         if (historico != null) {
             for (Mensagem m : historico) {
                 JSONObject msgObj = new JSONObject();
@@ -56,13 +69,13 @@ public class AIService {
         JSONObject requestBody = new JSONObject();
         requestBody.put("model", MODEL);
         requestBody.put("messages", messagesArray);
-        requestBody.put("temperature", 0.7);
+        requestBody.put("temperature", 0.1); // Mantém baixa para evitar alucinações
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(GROQ_URL))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + GROQ_API_KEY.trim())
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)") // Evita bloqueio do CloudFront
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
                 .build();
 
@@ -72,7 +85,9 @@ public class AIService {
             JSONObject jsonResponse = new JSONObject(response.body());
             JSONArray choices = jsonResponse.getJSONArray("choices");
             if (choices.length() > 0) {
-                return choices.getJSONObject(0).getJSONObject("message").getString("content");
+                String respostaBruta = choices.getJSONObject(0).getJSONObject("message").getString("content");
+                // Remove qualquer asterisco ou caractere de formatação indesejado
+                return respostaBruta.replace("*", "").replace("_", "").replace("#", "").trim();
             }
         } else {
             System.err.println("--- ERRO GROQ API ---");
@@ -83,21 +98,15 @@ public class AIService {
         return "Erro (" + response.statusCode() + "): Falha na comunicação com a API da Groq.";
     }
 
-    /**
-     * Melhora a ideia simples do usuário transformando em um prompt detalhado em inglês para o gerador de imagens.
-     */
     public String melhorarPromptImagem(String ideiaUsuario) throws Exception {
         if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
-            return ideiaUsuario; // Retorna o original se não houver chave
+            return ideiaUsuario;
         }
 
         JSONArray messagesArray = new JSONArray();
-
         JSONObject systemMessage = new JSONObject();
         systemMessage.put("role", "system");
-        systemMessage.put("content", "Você é um especialista em engenharia de prompts para geração de imagens por IA. "
-                + "Transforme a ideia simples fornecida pelo usuário em um prompt visual rico, detalhado e esteticamente incrível em inglês. "
-                + "Retorne APENAS o texto do prompt gerado, sem introduções ou explicações.");
+        systemMessage.put("content", "Você é um especialista em engenharia de prompts para geração de imagens por IA. Transforme a ideia simples fornecida pelo usuário em um prompt visual rico, detalhado e esteticamente incrível em inglês. Retorne APENAS o texto do prompt gerado, sem introduções ou explicações.");
         messagesArray.put(systemMessage);
 
         JSONObject userMessage = new JSONObject();
@@ -125,10 +134,10 @@ public class AIService {
             JSONArray choices = jsonResponse.getJSONArray("choices");
             if (choices.length() > 0) {
                 String promptMelhorado = choices.getJSONObject(0).getJSONObject("message").getString("content").trim();
-                return promptMelhorado.replace("\"", ""); // Remove aspas extras se houver
+                return promptMelhorado.replace("\"", "").replace("*", "");
             }
         }
 
-        return ideiaUsuario; // Fallback caso ocorra algum erro
+        return ideiaUsuario;
     }
 }

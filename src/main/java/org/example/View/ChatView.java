@@ -4,19 +4,7 @@ import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Label;
-import javafx.scene.control.RadioButton;
-import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Separator;
-import javafx.scene.control.TextArea;
-import javafx.scene.control.TextField;
-import javafx.scene.control.TextInputDialog;
-import javafx.scene.control.Toggle;
-import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.*;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.BorderPane;
@@ -33,8 +21,7 @@ import org.example.model.Mensagem;
 import org.example.model.Usuario;
 import org.example.repository.ConversaRepository;
 import org.example.service.AIService;
-import org.example.theme.ThemeManager;
-import org.example.theme.ThemeManager.Tema;
+import org.example.service.DocumentExtractor;
 
 import java.io.File;
 import java.net.URLEncoder;
@@ -49,16 +36,12 @@ public class ChatView {
     private final UsuarioControlle usuarioControlle;
     private final ConversaRepository conversaRepository = new ConversaRepository();
 
-    private BorderPane root;
     private StackPane areaCentral;
     private BorderPane layoutChatAtual;
     private VBox chatContainer;
     private VBox listaConversasContainer;
     private VBox sidebar;
     private Label lblNomeUsuario;
-    private TextField txtMensagemChat;
-    private HBox inputBarChat;
-
     private boolean sidebarMinimizada = false;
 
     private final AIService aiService = new AIService();
@@ -73,6 +56,8 @@ public class ChatView {
     private Conversas conversaAtual;
 
     private File imagemAnexadaBiblioteca = null;
+    private File documentoAnexado = null;
+    private final Label lblNomeDocumento = new Label();
 
     public ChatView(Usuario usuario, UsuarioControlle usuarioControlle) {
         this.usuario = usuario;
@@ -80,14 +65,15 @@ public class ChatView {
     }
 
     public void exibir(Stage stage) {
-        root = new BorderPane();
+        BorderPane root = new BorderPane();
+        root.setStyle("-fx-background-color: #0f172a; -fx-border-color: #334155; -fx-border-width: 1px;");
 
-        // Barra superior global integrada com o botão de alternar tema
-        HBox topWindowBar = WindowBar.criarBarraSuperior(stage, "Luna IA", () -> aplicarTema());
+        HBox topWindowBar = WindowBar.criarBarraSuperior(stage, "Luna IA", null);
         root.setTop(topWindowBar);
 
         sidebar = new VBox(10);
         sidebar.setPadding(new Insets(15));
+        sidebar.setStyle("-fx-background-color: #1e293b; -fx-min-width: 270px; -fx-max-width: 270px;");
 
         ImageView imgPerfil = new ImageView();
         imgPerfil.setFitWidth(36);
@@ -112,7 +98,7 @@ public class ChatView {
         });
 
         lblNomeUsuario = new Label(usuario != null && usuario.getNome() != null ? usuario.getNome() : "Usuário");
-        lblNomeUsuario.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+        lblNomeUsuario.setStyle("-fx-text-fill: #f8fafc; -fx-font-weight: bold; -fx-font-size: 14px;");
 
         HBox perfilEsquerdaBox = new HBox(10, btnAlterarFoto, lblNomeUsuario);
         perfilEsquerdaBox.setAlignment(Pos.CENTER_LEFT);
@@ -185,13 +171,14 @@ public class ChatView {
 
         btnToggleSidebar.setOnAction(e -> {
             sidebarMinimizada = !sidebarMinimizada;
-            sidebar.setStyle(ThemeManager.getSidebarStyle(sidebarMinimizada));
             if (sidebarMinimizada) {
+                sidebar.setStyle("-fx-background-color: #1e293b; -fx-min-width: 65px; -fx-max-width: 65px;");
                 lblNomeUsuario.setVisible(false);
                 lblNomeUsuario.setManaged(false);
                 conteudoSidebar.setVisible(false);
                 conteudoSidebar.setManaged(false);
             } else {
+                sidebar.setStyle("-fx-background-color: #1e293b; -fx-min-width: 270px; -fx-max-width: 270px;");
                 lblNomeUsuario.setVisible(true);
                 lblNomeUsuario.setManaged(true);
                 conteudoSidebar.setVisible(true);
@@ -216,26 +203,11 @@ public class ChatView {
         btnConfiguracao.setOnAction(e -> areaCentral.getChildren().setAll(criarTelaConfiguracoes(stage, layoutChat)));
         btnEstatisticas.setOnAction(e -> areaCentral.getChildren().setAll(criarTelaEstatisticas(layoutChat)));
 
-        aplicarTema();
-
         Scene scene = new Scene(root, 1020, 660);
         stage.setTitle("Luna IA");
         stage.setScene(scene);
         stage.centerOnScreen();
         stage.show();
-    }
-
-    private void aplicarTema() {
-        root.setStyle(ThemeManager.getRootStyle());
-        sidebar.setStyle(ThemeManager.getSidebarStyle(sidebarMinimizada));
-        lblNomeUsuario.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-weight: bold; -fx-font-size: 14px;");
-        if (txtMensagemChat != null) {
-            txtMensagemChat.setStyle(ThemeManager.getTextFieldStyle());
-        }
-        if (inputBarChat != null) {
-            inputBarChat.setStyle(ThemeManager.getTemaAtual() == Tema.CLARO ? "-fx-background-color: #e2e8f0;" : "-fx-background-color: #1e293b;");
-        }
-        aplicarFiltrosEAtualizar();
     }
 
     private VBox criarTelaConfiguracoes(Stage stage, BorderPane layoutChatVoltar) {
@@ -245,12 +217,12 @@ public class ChatView {
         box.setMaxWidth(420);
 
         Label lblTitulo = new Label("🛠 Configurações");
-        lblTitulo.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 22px; -fx-font-weight: bold;");
+        lblTitulo.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 22px; -fx-font-weight: bold;");
 
         Label lblNome = new Label("Nome de exibição");
         lblNome.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 12px;");
         TextField txtNome = new TextField(lblNomeUsuario.getText());
-        txtNome.setStyle(ThemeManager.getTextFieldStyle());
+        txtNome.setStyle("-fx-background-color: #334155; -fx-text-fill: white; -fx-background-radius: 8px; -fx-padding: 10px;");
 
         Label lblIdioma = new Label("Idioma das respostas da IA");
         lblIdioma.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 12px;");
@@ -321,7 +293,7 @@ public class ChatView {
         box.setMaxWidth(450);
 
         Label lblTitulo = new Label("📊 Estatísticas da Conta");
-        lblTitulo.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 22px; -fx-font-weight: bold;");
+        lblTitulo.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 22px; -fx-font-weight: bold;");
 
         int totalConversas = listaConversasBanco.size();
         long totalFavoritas = listaConversasBanco.stream().filter(Conversas::isFavorito).count();
@@ -344,15 +316,13 @@ public class ChatView {
     private VBox criarCardEstatistica(String titulo, String valor) {
         VBox card = new VBox(5);
         card.setPadding(new Insets(12, 16, 12, 16));
-        card.setStyle(ThemeManager.getTemaAtual() == Tema.CLARO
-                ? "-fx-background-color: #ffffff; -fx-background-radius: 8px; -fx-border-color: #cbd5e1; -fx-border-radius: 8px;"
-                : "-fx-background-color: #1e293b; -fx-background-radius: 8px; -fx-border-color: #334155; -fx-border-radius: 8px;");
+        card.setStyle("-fx-background-color: #1e293b; -fx-background-radius: 8px; -fx-border-color: #334155; -fx-border-radius: 8px;");
 
         Label lblTitulo = new Label(titulo);
         lblTitulo.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 12px;");
 
         Label lblValor = new Label(valor);
-        lblValor.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 18px; -fx-font-weight: bold;");
+        lblValor.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 18px; -fx-font-weight: bold;");
 
         card.getChildren().addAll(lblTitulo, lblValor);
         return card;
@@ -366,7 +336,7 @@ public class ChatView {
 
         TextField txtPrompt = new TextField();
         txtPrompt.setPromptText("Ex: um gato astronauta, castelo no céu...");
-        txtPrompt.setStyle(ThemeManager.getTextFieldStyle());
+        txtPrompt.setStyle("-fx-background-color: #334155; -fx-text-fill: white; -fx-prompt-text-fill: #94a3b8; -fx-font-size: 14px; -fx-background-radius: 8px; -fx-padding: 12px;");
         txtPrompt.setMaxWidth(500);
 
         Button btnGerar = new Button("Gerar Imagem");
@@ -461,18 +431,18 @@ public class ChatView {
         box.setMaxWidth(600);
 
         Label lblTitulo = new Label("📚 Biblioteca");
-        lblTitulo.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 20px; -fx-font-weight: bold;");
+        lblTitulo.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 20px; -fx-font-weight: bold;");
 
         TextArea txtTexto = new TextArea();
         txtTexto.setPromptText("Escreva ou cole aqui o seu texto...");
         txtTexto.setPrefRowCount(7);
         txtTexto.setWrapText(true);
-        txtTexto.setStyle(ThemeManager.getTextFieldStyle());
+        txtTexto.setStyle("-fx-control-inner-background: #334155; -fx-text-fill: white; -fx-prompt-text-fill: #94a3b8; -fx-font-size: 13px; -fx-background-radius: 6px;");
         txtTexto.setMaxWidth(500);
 
         TextField txtPergunta = new TextField();
         txtPergunta.setPromptText("O que fazer com o texto? (resumir, corrigir, traduzir, perguntar...)");
-        txtPergunta.setStyle(ThemeManager.getTextFieldStyle());
+        txtPergunta.setStyle("-fx-background-color: #334155; -fx-text-fill: white; -fx-prompt-text-fill: #94a3b8; -fx-font-size: 13px; -fx-background-radius: 6px; -fx-padding: 8px;");
         txtPergunta.setMaxWidth(500);
 
         Button btnAnexar = new Button("📎 Anexar Imagem (opcional)");
@@ -509,7 +479,7 @@ public class ChatView {
         Label lblRespostaIA = new Label();
         lblRespostaIA.setWrapText(true);
         lblRespostaIA.setMaxWidth(480);
-        lblRespostaIA.setStyle(ThemeManager.getBalaoIAGetStyle());
+        lblRespostaIA.setStyle("-fx-text-fill: #f1f5f9; -fx-background-color: #1e293b; -fx-padding: 15px; -fx-background-radius: 8px; -fx-font-size: 13px;");
 
         ScrollPane scrollResposta = new ScrollPane(lblRespostaIA);
         scrollResposta.setFitToWidth(true);
@@ -578,32 +548,62 @@ public class ChatView {
 
         carregarMensagensNaTela();
 
-        inputBarChat = new HBox(10);
-        inputBarChat.setPadding(new Insets(15));
-        inputBarChat.setAlignment(Pos.CENTER);
+        // Botão para anexar documentos (PDF, Word, TXT) exatamente na barra do chat
+        Button btnAnexarDoc = new Button("📎 Doc");
+        btnAnexarDoc.setStyle("-fx-background-color: #334155; -fx-text-fill: white; -fx-cursor: hand; -fx-background-radius: 8px; -fx-padding: 10px;");
+        btnAnexarDoc.setTooltip(new Tooltip("Anexar documento para R.A.G. (PDF, Word, TXT)"));
 
-        txtMensagemChat = new TextField();
-        txtMensagemChat.setPromptText("Digite sua mensagem...");
-        HBox.setHgrow(txtMensagemChat, Priority.ALWAYS);
+        lblNomeDocumento.setStyle("-fx-text-fill: #4ade80; -fx-font-size: 11px;");
+
+        btnAnexarDoc.setOnAction(e -> {
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Selecionar Documento para consulta da IA");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("Documentos", "*.pdf", "*.docx", "*.txt")
+            );
+            File arquivoSelecionado = fileChooser.showOpenDialog(null);
+            if (arquivoSelecionado != null) {
+                documentoAnexado = arquivoSelecionado;
+                lblNomeDocumento.setText("📄 " + arquivoSelecionado.getName());
+            }
+        });
+
+        TextField txtMensagem = new TextField();
+        txtMensagem.setPromptText("Digite sua mensagem (com ou sem documento)...");
+        txtMensagem.setStyle("-fx-background-color: #334155; -fx-text-fill: white; -fx-prompt-text-fill: #94a3b8; -fx-font-size: 14px; -fx-background-radius: 8px; -fx-padding: 10px;");
+        HBox.setHgrow(txtMensagem, Priority.ALWAYS);
 
         Button btnEnviar = new Button("Enviar");
         btnEnviar.setStyle("-fx-background-color: #a855f7; -fx-text-fill: white; -fx-font-weight: bold; -fx-cursor: hand; -fx-background-radius: 8px; -fx-padding: 10px 18px;");
 
         btnEnviar.setOnAction(e -> {
-            String texto = txtMensagemChat.getText().trim();
-            if (texto.isEmpty()) return;
+            String texto = txtMensagem.getText().trim();
+            if (texto.isEmpty() && documentoAnexado == null) return;
 
             if (conversaAtual == null) {
-                String titulo = texto.length() > 25 ? texto.substring(0, 25) + "..." : texto;
+                String titulo = texto.length() > 25 ? texto.substring(0, 25) + "..." : (documentoAnexado != null ? documentoAnexado.getName() : "Conversa");
                 conversaAtual = new Conversas(usuario.getEmail(), titulo);
             }
 
-            txtMensagemChat.clear();
+            txtMensagem.clear();
 
-            if (texto.toLowerCase().startsWith("/imagem") || texto.toLowerCase().startsWith("imagem:") || texto.toLowerCase().contains("gerar imagem")) {
+            String textoDocumento = null;
+            if (documentoAnexado != null) {
+                textoDocumento = DocumentExtractor.extrairTexto(documentoAnexado);
+                String avisoDoc = "[Documento anexado: " + documentoAnexado.getName() + "]";
+                adicionarBalao(chatContainer, avisoDoc, true);
+                conversaAtual.getMensagens().add(new Mensagem(avisoDoc, true));
+
+                documentoAnexado = null;
+                lblNomeDocumento.setText("");
+            }
+
+            if (!texto.isEmpty()) {
                 adicionarBalao(chatContainer, texto, true);
                 conversaAtual.getMensagens().add(new Mensagem(texto, true));
+            }
 
+            if (texto.toLowerCase().startsWith("/imagem") || texto.toLowerCase().startsWith("imagem:") || texto.toLowerCase().contains("gerar imagem")) {
                 String aviso = "Para gerar imagens, por favor acesse a aba '🎨 Imagens' no menu lateral esquerdo!";
                 adicionarBalao(chatContainer, aviso, false);
                 conversaAtual.getMensagens().add(new Mensagem(aviso, false));
@@ -613,9 +613,6 @@ public class ChatView {
                 return;
             }
 
-            adicionarBalao(chatContainer, texto, true);
-            conversaAtual.getMensagens().add(new Mensagem(texto, true));
-
             Label lblDigitando = new Label("Luna IA está pensando...");
             lblDigitando.setStyle("-fx-text-fill: #94a3b8; -fx-font-style: italic; -fx-padding: 5px;");
             chatContainer.getChildren().add(lblDigitando);
@@ -623,12 +620,13 @@ public class ChatView {
             final List<Mensagem> historico = new ArrayList<>(conversaAtual.getMensagens());
             final String personalidadeNaHora = personalidadeIA;
             final String idiomaNaHora = idioma;
+            final String contextoRAG = textoDocumento;
             final Conversas conversaDaResposta = conversaAtual;
 
             Task<String> taskGroq = new Task<>() {
                 @Override
                 protected String call() throws Exception {
-                    return aiService.gerarResposta(historico, personalidadeNaHora, idiomaNaHora);
+                    return aiService.gerarRespostaComRAG(historico, personalidadeNaHora, idiomaNaHora, contextoRAG);
                 }
             };
 
@@ -654,12 +652,17 @@ public class ChatView {
             t.start();
         });
 
-        txtMensagemChat.setOnAction(e -> btnEnviar.fire());
-        inputBarChat.getChildren().addAll(txtMensagemChat, btnEnviar);
+        txtMensagem.setOnAction(e -> btnEnviar.fire());
+
+        VBox inputContainer = new VBox(4, lblNomeDocumento, new HBox(10, btnAnexarDoc, txtMensagem, btnEnviar));
+        inputContainer.setPadding(new Insets(10, 15, 15, 15));
+        HBox inputBar = new HBox(inputContainer);
+        inputBar.setStyle("-fx-background-color: #1e293b;");
+        inputBar.setAlignment(Pos.CENTER);
 
         BorderPane layout = new BorderPane();
         layout.setCenter(scrollChat);
-        layout.setBottom(inputBarChat);
+        layout.setBottom(inputBar);
         return layout;
     }
 
@@ -723,12 +726,10 @@ public class ChatView {
             HBox itemBox = new HBox(6);
             itemBox.setAlignment(Pos.CENTER_LEFT);
             itemBox.setPadding(new Insets(8));
-            itemBox.setStyle(ThemeManager.getTemaAtual() == Tema.CLARO
-                    ? "-fx-background-color: #cbd5e1; -fx-background-radius: 6px; -fx-cursor: hand;"
-                    : "-fx-background-color: #334155; -fx-background-radius: 6px; -fx-cursor: hand;");
+            itemBox.setStyle("-fx-background-color: #334155; -fx-background-radius: 6px; -fx-cursor: hand;");
 
-            Label lblTitulo = new Label(c.getTitulo());
-            lblTitulo.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 12px;");
+            Label lblTitulo = new Label((c.isFavorito() ? "★ " : "") + c.getTitulo());
+            lblTitulo.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 12px;");
             HBox.setHgrow(lblTitulo, Priority.ALWAYS);
 
             lblTitulo.setOnMouseClicked(e -> {
@@ -740,9 +741,17 @@ public class ChatView {
                 carregarMensagensNaTela();
             });
 
-            Button btnEditar = new Button("✏");
-            btnEditar.setStyle("-fx-background-color: transparent; -fx-text-fill: #94a3b8; -fx-font-size: 12px; -fx-cursor: hand; -fx-padding: 0;");
-            btnEditar.setOnAction(e -> {
+            ContextMenu contextMenu = new ContextMenu();
+
+            MenuItem menuFavorito = new MenuItem(c.isFavorito() ? "Remover dos Favoritos" : "Favoritar");
+            menuFavorito.setOnAction(e -> {
+                c.setFavorito(!c.isFavorito());
+                conversaRepository.salvar(c);
+                carregarConversasDoBanco();
+            });
+
+            MenuItem menuRenomear = new MenuItem("Renomear");
+            menuRenomear.setOnAction(e -> {
                 TextInputDialog dialog = new TextInputDialog(c.getTitulo());
                 dialog.setTitle("Editar Conversa");
                 dialog.setHeaderText("Renomear título da conversa:");
@@ -757,9 +766,9 @@ public class ChatView {
                 });
             });
 
-            Button btnDeletar = new Button("🗑");
-            btnDeletar.setStyle("-fx-background-color: transparent; -fx-text-fill: #ef4444; -fx-font-size: 12px; -fx-cursor: hand; -fx-padding: 0;");
-            btnDeletar.setOnAction(e -> {
+            MenuItem menuDeletar = new MenuItem("Deletar");
+            menuDeletar.setStyle("-fx-text-fill: red;");
+            menuDeletar.setOnAction(e -> {
                 if (c.getId() != null) {
                     conversaRepository.deletar(c.getId());
                     if (conversaAtual != null && conversaAtual.getId() != null && conversaAtual.getId().equals(c.getId())) {
@@ -769,15 +778,13 @@ public class ChatView {
                 }
             });
 
-            Button btnFav = new Button(c.isFavorito() ? "★" : "☆");
-            btnFav.setStyle("-fx-background-color: transparent; -fx-text-fill: " + (c.isFavorito() ? "#facc15" : "#94a3b8") + "; -fx-font-size: 14px; -fx-cursor: hand; -fx-padding: 0;");
-            btnFav.setOnAction(e -> {
-                c.setFavorito(!c.isFavorito());
-                conversaRepository.salvar(c);
-                carregarConversasDoBanco();
+            contextMenu.getItems().addAll(menuFavorito, menuRenomear, menuDeletar);
+
+            itemBox.setOnContextMenuRequested(e -> {
+                contextMenu.show(itemBox, e.getScreenX(), e.getScreenY());
             });
 
-            itemBox.getChildren().addAll(lblTitulo, btnEditar, btnDeletar, btnFav);
+            itemBox.getChildren().addAll(lblTitulo);
             listaConversasContainer.getChildren().add(itemBox);
         }
     }
@@ -789,7 +796,7 @@ public class ChatView {
         box.setMaxWidth(420);
 
         Label lblTitulo = new Label("Personalizar " + nomeIA);
-        lblTitulo.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 20px; -fx-font-weight: bold;");
+        lblTitulo.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 20px; -fx-font-weight: bold;");
 
         Label lblSub = new Label("Selecione a personalidade para as respostas:");
         lblSub.setStyle("-fx-text-fill: #94a3b8; -fx-font-size: 13px;");
@@ -815,7 +822,7 @@ public class ChatView {
         VBox opcoesBox = new VBox(10, rbAmigavel, rbEmpatica, rbProfissional, rbFormal, rbTecnica, rbDireto, rbHumoristica);
         opcoesBox.setAlignment(Pos.CENTER_LEFT);
         opcoesBox.setPadding(new Insets(10));
-        opcoesBox.setStyle(ThemeManager.getTemaAtual() == Tema.CLARO ? "-fx-background-color: #e2e8f0; -fx-background-radius: 8px;" : "-fx-background-color: #1e293b; -fx-background-radius: 8px;");
+        opcoesBox.setStyle("-fx-background-color: #1e293b; -fx-background-radius: 8px;");
 
         Button btnSalvar = new Button("Salvar e Aplicar");
         btnSalvar.setMaxWidth(Double.MAX_VALUE);
@@ -839,7 +846,7 @@ public class ChatView {
     private RadioButton criarRadioPersonalidade(String texto, ToggleGroup group) {
         RadioButton rb = new RadioButton(texto);
         rb.setToggleGroup(group);
-        rb.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 13px; -fx-cursor: hand;");
+        rb.setStyle("-fx-text-fill: #f8fafc; -fx-font-size: 13px; -fx-cursor: hand;");
         return rb;
     }
 
@@ -847,9 +854,7 @@ public class ChatView {
         Button btn = new Button(texto);
         btn.setMaxWidth(Double.MAX_VALUE);
         btn.setAlignment(Pos.CENTER_LEFT);
-        btn.setStyle(ThemeManager.getTemaAtual() == Tema.CLARO
-                ? "-fx-background-color: #cbd5e1; -fx-text-fill: #0f172a; -fx-font-size: 13px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 8px 12px;"
-                : "-fx-background-color: #334155; -fx-text-fill: #cbd5e1; -fx-font-size: 13px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 8px 12px;");
+        btn.setStyle("-fx-background-color: #334155; -fx-text-fill: #cbd5e1; -fx-font-size: 13px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 8px 12px;");
         return btn;
     }
 
@@ -859,14 +864,14 @@ public class ChatView {
         if (ativo) {
             btn.setStyle("-fx-background-color: #a855f7; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 11px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 5px;");
         } else {
-            btn.setStyle(ThemeManager.getTemaAtual() == Tema.CLARO
-                    ? "-fx-background-color: #cbd5e1; -fx-text-fill: #0f172a; -fx-font-size: 11px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 5px;"
-                    : "-fx-background-color: #334155; -fx-text-fill: #cbd5e1; -fx-font-size: 11px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 5px;");
+            btn.setStyle("-fx-background-color: #334155; -fx-text-fill: #cbd5e1; -fx-font-size: 11px; -fx-cursor: hand; -fx-background-radius: 6px; -fx-padding: 5px;");
         }
     }
 
-    private void adicionarBalao(VBox container, String texto, boolean isUsuario) {
-        Label label = new Label(texto);
+    private void adicionarBalao(VBox container, String textoOriginal, boolean isUsuario) {
+        String textoLimpo = isUsuario ? textoOriginal : textoOriginal.replace("**", "").replace("__", "");
+
+        Label label = new Label(textoLimpo);
         label.setWrapText(true);
         label.setMaxWidth(480);
 
@@ -880,7 +885,7 @@ public class ChatView {
             btnCopiar.setOnAction(e -> {
                 javafx.scene.input.Clipboard clipboard = javafx.scene.input.Clipboard.getSystemClipboard();
                 javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
-                content.putString(texto);
+                content.putString(textoLimpo);
                 clipboard.setContent(content);
 
                 btnCopiar.setText("✓ Copiado!");
@@ -900,7 +905,7 @@ public class ChatView {
             label.setStyle("-fx-background-color: #a855f7; -fx-text-fill: white; -fx-padding: 10px 16px; -fx-background-radius: 16px 16px 2px 16px; -fx-font-size: 14px;");
         } else {
             wrapper.setAlignment(Pos.CENTER_LEFT);
-            label.setStyle(ThemeManager.getBalaoIAGetStyle());
+            label.setStyle("-fx-background-color: #1e293b; -fx-text-fill: #f1f5f9; -fx-padding: 10px 16px; -fx-background-radius: 16px 16px 16px 2px; -fx-font-size: 14px;");
         }
 
         container.getChildren().add(wrapper);
