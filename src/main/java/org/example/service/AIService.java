@@ -5,6 +5,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -12,10 +14,21 @@ import org.example.model.Mensagem;
 
 public class AIService {
 
-    private static final String GROQ_API_KEY = System.getenv("GROQ_API_KEY");
+    private static final String GROQ_API_KEY = limparChave(System.getenv("GROQ_API_KEY"));
     private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-    // Modelo oficial e ativo da Groq
-    private static final String MODEL = "llama-3.3-70b-versatile";
+
+    // llama-3.3-70b-versatile foi descontinuado pela Groq (16/08/2026).
+    // Substituto recomendado: openai/gpt-oss-120b (alternativa: qwen/qwen3.6-27b).
+    // Para trocar sem recompilar, defina a variável de ambiente GROQ_MODEL.
+    private static final String DEFAULT_MODEL = "openai/gpt-oss-120b";
+    private static final String MODEL = resolverModelo();
+
+    // Pesquisa web (Tavily). Defina a variável de ambiente TAVILY_API_KEY.
+    private static final String TAVILY_API_KEY = limparChave(System.getenv("TAVILY_API_KEY"));
+    private static final String TAVILY_URL = "https://api.tavily.com/search";
+    private static final int MAX_RESULTADOS_WEB = 3;
+    private static final int MAX_CHARS_POR_RESULTADO = 600;
+    private static final int MAX_CHARS_CONSULTA = 300;
 
     private final HttpClient httpClient;
 
@@ -24,6 +37,37 @@ public class AIService {
                 .version(HttpClient.Version.HTTP_2)
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
+
+        // Diagnóstico temporário (não expõe a chave inteira). Remova depois de funcionar.
+        if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
+            System.err.println("AVISO: GROQ_API_KEY não definida.");
+        } else {
+            int n = GROQ_API_KEY.length();
+            System.err.println("Groq key: tamanho=" + n
+                    + ", início=" + GROQ_API_KEY.substring(0, Math.min(4, n))
+                    + ", fim=" + GROQ_API_KEY.substring(Math.max(0, n - 4)));
+        }
+
+        if (TAVILY_API_KEY == null || TAVILY_API_KEY.isBlank()) {
+            System.err.println("AVISO: TAVILY_API_KEY não definida. A pesquisa na web está desativada.");
+        } else {
+            // Diagnóstico temporário (não expõe a chave). Remova depois de funcionar.
+            System.err.println("Tavily key: tamanho=" + TAVILY_API_KEY.length()
+                    + ", início=" + TAVILY_API_KEY.substring(0, Math.min(5, TAVILY_API_KEY.length())));
+        }
+    }
+
+    // Remove espaços, quebras de linha e aspas que costumam vir junto da variável de ambiente.
+    private static String limparChave(String valor) {
+        if (valor == null) {
+            return null;
+        }
+        return valor.trim().replaceAll("^[\"']+|[\"']+$", "").trim();
+    }
+
+    private static String resolverModelo() {
+        String env = System.getenv("GROQ_MODEL");
+        return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;
     }
 
     public String gerarResposta(List<Mensagem> historico, String personalidade, String idioma) throws Exception {
@@ -35,6 +79,11 @@ public class AIService {
             return "Erro: a variável de ambiente GROQ_API_KEY não está definida.";
         }
 
+        // Pesquisa rápida na web antes de responder (falhas não interrompem a resposta)
+        String resultadosWeb = pesquisarNaWeb(ultimaPerguntaDoUsuario(historico));
+
+        String hoje = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+
         JSONArray messagesArray = new JSONArray();
 
         StringBuilder conteudoSistema = new StringBuilder();
@@ -43,8 +92,18 @@ public class AIService {
                 .append(personalidade)
                 .append(". Responda sempre utilizando o idioma: ")
                 .append(idioma)
-                .append(". CONTEXTO TEMPORAL: O ano atual é 2026. Considere dados e fatos atuais até o ano de 2026. ")
+                .append(". CONTEXTO TEMPORAL: a data de hoje é ")
+                .append(hoje)
+                .append(". ")
                 .append("REGRA ESTRITA DE FORMATAÇÃO: NUNCA utilize asteriscos (*), negritos (**) nem marcadores markdown. Escreva apenas texto puro, limpo e contínuo.");
+
+        if (resultadosWeb != null) {
+            conteudoSistema.append("\n\n[Resultados de pesquisa na web, obtidos agora]:\n")
+                    .append(resultadosWeb)
+                    .append("\nUse esses resultados como fonte principal para fatos atuais e verificáveis. ")
+                    .append("Se eles não responderem à pergunta, diga que não encontrou informação confiável em vez de inventar. ")
+                    .append("Quando for útil, mencione o nome do site da fonte em texto puro.");
+        }
 
         if (contextoDocumento != null && !contextoDocumento.isBlank()) {
             conteudoSistema.append("\n\n[Contexto extraído do documento do usuário]:\n")
@@ -71,26 +130,18 @@ public class AIService {
         requestBody.put("messages", messagesArray);
         requestBody.put("temperature", 0.1); // Mantém baixa para evitar alucinações
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(GROQ_URL))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + GROQ_API_KEY.trim())
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = enviar(requestBody);
 
         if (response.statusCode() == 200) {
             JSONObject jsonResponse = new JSONObject(response.body());
             JSONArray choices = jsonResponse.getJSONArray("choices");
             if (choices.length() > 0) {
                 String respostaBruta = choices.getJSONObject(0).getJSONObject("message").getString("content");
-                // Remove qualquer asterisco ou caractere de formatação indesejado
-                return respostaBruta.replace("*", "").replace("_", "").replace("#", "").trim();
+                return limparFormatacao(respostaBruta);
             }
         } else {
             System.err.println("--- ERRO GROQ API ---");
+            System.err.println("Modelo: " + MODEL);
             System.err.println("Código HTTP: " + response.statusCode());
             System.err.println("Resposta: " + response.body());
         }
@@ -119,15 +170,7 @@ public class AIService {
         requestBody.put("messages", messagesArray);
         requestBody.put("temperature", 0.7);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(GROQ_URL))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + GROQ_API_KEY.trim())
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = enviar(requestBody);
 
         if (response.statusCode() == 200) {
             JSONObject jsonResponse = new JSONObject(response.body());
@@ -136,8 +179,112 @@ public class AIService {
                 String promptMelhorado = choices.getJSONObject(0).getJSONObject("message").getString("content").trim();
                 return promptMelhorado.replace("\"", "").replace("*", "");
             }
+        } else {
+            System.err.println("--- ERRO GROQ API (melhorarPromptImagem) ---");
+            System.err.println("Modelo: " + MODEL);
+            System.err.println("Código HTTP: " + response.statusCode());
+            System.err.println("Resposta: " + response.body());
         }
 
         return ideiaUsuario;
+    }
+
+    private HttpResponse<String> enviar(JSONObject requestBody) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(GROQ_URL))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + GROQ_API_KEY.trim())
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
+                .build();
+
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    // Retorna a última mensagem enviada pelo usuário no histórico (ou null).
+    private String ultimaPerguntaDoUsuario(List<Mensagem> historico) {
+        if (historico == null) {
+            return null;
+        }
+        for (int i = historico.size() - 1; i >= 0; i--) {
+            Mensagem m = historico.get(i);
+            if (m.isUsuario()) {
+                return m.getTexto();
+            }
+        }
+        return null;
+    }
+
+    // Pesquisa breve na web via Tavily. Retorna null se a pesquisa estiver
+    // desativada ou falhar, para que o chat continue respondendo normalmente.
+    private String pesquisarNaWeb(String pergunta) {
+        if (TAVILY_API_KEY == null || TAVILY_API_KEY.isBlank() || pergunta == null || pergunta.isBlank()) {
+            return null;
+        }
+
+        try {
+            String consulta = pergunta.trim();
+            if (consulta.length() > MAX_CHARS_CONSULTA) {
+                consulta = consulta.substring(0, MAX_CHARS_CONSULTA);
+            }
+
+            JSONObject body = new JSONObject();
+            body.put("query", consulta);
+            body.put("search_depth", "basic");
+            body.put("max_results", MAX_RESULTADOS_WEB);
+            body.put("include_answer", false);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(TAVILY_URL))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + TAVILY_API_KEY.trim())
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                System.err.println("--- ERRO TAVILY ---");
+                System.err.println("Código HTTP: " + response.statusCode());
+                System.err.println("Resposta: " + response.body());
+                return null;
+            }
+
+            JSONArray results = new JSONObject(response.body()).optJSONArray("results");
+            if (results == null || results.length() == 0) {
+                return null;
+            }
+
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject r = results.getJSONObject(i);
+                String conteudo = r.optString("content", "").trim();
+                if (conteudo.length() > MAX_CHARS_POR_RESULTADO) {
+                    conteudo = conteudo.substring(0, MAX_CHARS_POR_RESULTADO) + "...";
+                }
+                sb.append(i + 1).append(") ")
+                        .append(r.optString("title", "Sem título"))
+                        .append(" (").append(r.optString("url", "")).append(")\n")
+                        .append(conteudo).append("\n\n");
+            }
+            return sb.toString().trim();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception e) {
+            System.err.println("Falha na pesquisa web: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // Remove só a formatação markdown (asteriscos e títulos com #),
+    // preservando underscores e # legítimos (nomes de variáveis, URLs, hashtags).
+    private String limparFormatacao(String texto) {
+        return texto
+                .replace("*", "")
+                .replaceAll("(?m)^#+\\s*", "")
+                .trim();
     }
 }
