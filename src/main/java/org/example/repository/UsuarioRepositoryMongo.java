@@ -2,6 +2,8 @@ package org.example.repository;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.UpdateResult;
 import org.example.config.DatabaseConfig;
 import org.example.model.Usuario;
 
@@ -31,5 +33,24 @@ public class UsuarioRepositoryMongo implements UsuarioRepository {
         String emailFormatado = email.trim().toLowerCase();
 
         return collection.find(Filters.eq("email", emailFormatado)).first();
+    }
+
+    @Override
+    public void atualizarNome(String email, String novoNome) {
+        if (email == null || email.isBlank()) {
+            throw new RuntimeException("E-mail inválido");
+        }
+
+        String emailFormatado = email.trim().toLowerCase();
+
+        // Atualiza somente o campo "nome"; senha e demais dados ficam intactos
+        UpdateResult resultado = collection.updateOne(
+                Filters.eq("email", emailFormatado),
+                Updates.set("nome", novoNome)
+        );
+
+        if (resultado.getMatchedCount() == 0) {
+            throw new RuntimeException("Usuário não encontrado");
+        }
     }
 }

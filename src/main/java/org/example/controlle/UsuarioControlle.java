@@ -18,4 +18,8 @@ public class UsuarioControlle {
     public Usuario autenticar(String email, String senha) {
         return usuarioService.autenticar(email, senha);
     }
+
+    public void atualizarNome(Usuario usuario, String novoNome) {
+        usuarioService.atualizarNome(usuario, novoNome);
+    }
 }

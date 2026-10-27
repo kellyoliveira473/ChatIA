@@ -15,25 +15,27 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 import org.example.controlle.UsuarioControlle;
 import org.example.model.Usuario;
+import org.example.theme.ThemeManager;
 
 public class RegisterView {
 
     private final UsuarioControlle usuarioControlle;
+    private BorderPane root;
+    private Label lblTitle;
 
     public RegisterView(UsuarioControlle usuarioControlle) {
         this.usuarioControlle = usuarioControlle;
     }
 
     public void trocarParaCadastro(Stage stage) {
-        BorderPane root = new BorderPane();
-        root.setStyle("-fx-background-color: #0f172a; -fx-border-color: #334155; -fx-border-width: 1px;");
+        root = new BorderPane();
 
-        // 1. Adiciona a barra superior contínua (WindowBar)
-        HBox topBar = WindowBar.criarBarraSuperior(stage, "Luna IA");
+        // 1. Adiciona a barra superior contínua (WindowBar) com suporte global ao tema
+        HBox topBar = WindowBar.criarBarraSuperior(stage, "Luna IA", () -> aplicarTema());
         root.setTop(topBar);
 
         // 2. Elementos do Formulário
-        Label lblTitle = new Label("Criar Conta");
+        lblTitle = new Label("Criar Conta");
         lblTitle.getStyleClass().add("title");
 
         TextField txtNome = new TextField();
@@ -96,13 +98,17 @@ public class RegisterView {
         });
 
         // Centraliza o formulário no meio da tela
-        VBox form = new VBox(lblTitle, txtNome, txtEmail, textSenha, txtConfirmacao, btnCadastrar, linkLogin, lblStatus);
+        VBox form = new VBox(12, lblTitle, txtNome, txtEmail, textSenha, txtConfirmacao, btnCadastrar, linkLogin, lblStatus);
         form.getStyleClass().add("Form-container");
         form.setMaxWidth(350);
+        form.setAlignment(Pos.CENTER);
 
         VBox centerBox = new VBox(form);
         centerBox.setAlignment(Pos.CENTER);
         root.setCenter(centerBox);
+
+        // Aplica o tema atual
+        aplicarTema();
 
         Scene scene = new Scene(root, 450, 520);
 
@@ -118,5 +124,14 @@ public class RegisterView {
             javafx.application.Platform.exit();
             System.exit(0);
         });
+    }
+
+    private void aplicarTema() {
+        if (root != null) {
+            root.setStyle(ThemeManager.getRootStyle());
+        }
+        if (lblTitle != null) {
+            lblTitle.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 20px; -fx-font-weight: bold;");
+        }
     }
 }

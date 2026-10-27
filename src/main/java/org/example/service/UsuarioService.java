@@ -56,4 +56,24 @@ public class UsuarioService {
 
         return usuario;
     }
+
+    public void atualizarNome(Usuario usuario, String novoNome) {
+        if (usuario == null || usuario.getEmail() == null) {
+            throw new RuntimeException("Usuário inválido");
+        }
+        if (novoNome == null || novoNome.isBlank()) {
+            throw new RuntimeException("O nome não pode ficar vazio");
+        }
+
+        String nomeAnterior = usuario.getNome();
+        usuario.setNome(novoNome.trim());
+
+        try {
+            // Atualiza só o nome (a senha em hash não é tocada)
+            usuarioRepository.atualizarNome(usuario.getEmail(), usuario.getNome());
+        } catch (RuntimeException e) {
+            usuario.setNome(nomeAnterior); // desfaz se o banco falhar
+            throw e;
+        }
+    }
 }

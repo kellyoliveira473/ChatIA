@@ -13,31 +13,36 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import org.example.controlle.UsuarioControlle;
 import org.example.model.Usuario;
+import org.example.theme.ThemeManager;
+import org.example.theme.ThemeManager.Tema;
 
 public class LoginView {
 
     private final UsuarioControlle usuarioControlle;
+    private BorderPane root;
+    private Label lblTitle;
+    private TextField txtEmail;
+    private PasswordField txtSenha;
 
     public LoginView(UsuarioControlle usuarioControlle) {
         this.usuarioControlle = usuarioControlle;
     }
 
     public void trocarParaLogin(Stage stage) {
-        BorderPane root = new BorderPane();
-        root.setStyle("-fx-background-color: #0f172a; -fx-border-color: #334155; -fx-border-width: 1px;");
+        root = new BorderPane();
 
-        // 1. Adiciona a barra superior contínua (WindowBar)
-        HBox topBar = WindowBar.criarBarraSuperior(stage, "Luna IA");
+        // 1. Adiciona a barra superior global (WindowBar) passando o callback de atualizar tema
+        HBox topBar = WindowBar.criarBarraSuperior(stage, "Luna IA", () -> aplicarTema());
         root.setTop(topBar);
 
         // 2. Elementos do Formulário
-        Label lblTitle = new Label("Entrar no Luna IA");
+        lblTitle = new Label("Entrar no Luna IA");
         lblTitle.getStyleClass().add("title");
 
-        TextField txtEmail = new TextField();
+        txtEmail = new TextField();
         txtEmail.setPromptText("E-mail");
 
-        PasswordField txtSenha = new PasswordField();
+        txtSenha = new PasswordField();
         txtSenha.setPromptText("Senha");
 
         Button btnEntrar = new Button("Entrar");
@@ -71,7 +76,7 @@ public class LoginView {
                 System.out.println("-> Usuário autenticado: " + usuarioAutenticado.getNome());
 
                 // Redireciona para a ChatView
-                ChatView chatView = new ChatView(usuarioAutenticado);
+                ChatView chatView = new ChatView(usuarioAutenticado, usuarioControlle);
                 chatView.exibir(stage);
 
             } catch (Exception ex) {
@@ -88,13 +93,17 @@ public class LoginView {
         });
 
         // Centraliza o formulário no meio da tela
-        VBox form = new VBox(lblTitle, txtEmail, txtSenha, btnEntrar, linkCadastro, lblStatus);
+        VBox form = new VBox(12, lblTitle, txtEmail, txtSenha, btnEntrar, linkCadastro, lblStatus);
         form.getStyleClass().add("Form-container");
         form.setMaxWidth(350);
+        form.setAlignment(Pos.CENTER);
 
         VBox centerBox = new VBox(form);
         centerBox.setAlignment(Pos.CENTER);
         root.setCenter(centerBox);
+
+        // Aplica o tema inicial configurado
+        aplicarTema();
 
         Scene scene = new Scene(root, 450, 520);
 
@@ -103,6 +112,7 @@ public class LoginView {
 
         stage.setTitle("Login - Chat IA");
         stage.setScene(scene);
+        stage.sizeToScene();
         stage.centerOnScreen();
         stage.show();
 
@@ -110,5 +120,14 @@ public class LoginView {
             javafx.application.Platform.exit();
             System.exit(0);
         });
+    }
+
+    private void aplicarTema() {
+        if (root != null) {
+            root.setStyle(ThemeManager.getRootStyle());
+        }
+        if (lblTitle != null) {
+            lblTitle.setStyle("-fx-text-fill: " + ThemeManager.getTextColor() + "; -fx-font-size: 20px; -fx-font-weight: bold;");
+        }
     }
 }
