@@ -29,6 +29,7 @@ import org.example.theme.ThemeManager;
 import org.example.theme.ThemeManager.Tema;
 
 import java.io.File;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -38,6 +39,8 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class ChatView {
+
+    private static final int MAX_IMAGENS = 3;
 
     private final Usuario usuario;
     private final UsuarioControlle usuarioControlle;
@@ -74,6 +77,7 @@ public class ChatView {
 
     private File imagemAnexadaBiblioteca = null;
     private File documentoAnexado = null;
+    private final List<File> imagensAnexadas = new ArrayList<>();
     private final Label lblNomeDocumento = new Label();
 
     public ChatView(Usuario usuario, UsuarioControlle usuarioControlle) {
@@ -100,11 +104,23 @@ public class ChatView {
         Scene scene = new Scene(rootAtual, 1020, 660);
         scene.setFill(Color.web(ThemeManager.getPaleta().fundo()));
         stage.setTitle("Luna IA");
+        aplicarIcone(stage);
         stage.setScene(scene);
         stage.centerOnScreen();
         stage.show();
 
         registrarOuvinteTema(stage);
+    }
+
+    /** Ícone da janela. Coloque o PNG da logo em src/main/resources/icone.png. */
+    private void aplicarIcone(Stage stage) {
+        try (InputStream is = getClass().getResourceAsStream("/icone.png")) {
+            if (is != null) {
+                stage.getIcons().setAll(new Image(is));
+            }
+        } catch (Exception ignorada) {
+            // Sem ícone, a janela usa o padrão.
+        }
     }
 
     private BorderPane construirRoot() {
@@ -151,6 +167,7 @@ public class ChatView {
 
         txtMensagem.setText(rascunho);
         txtMensagem.positionCaret(rascunho.length());
+        atualizarAvisoAnexos();
 
         if (telaAtual != null) {
             areaCentral.getChildren().setAll(telaAtual.get());
@@ -601,25 +618,29 @@ public class ChatView {
         txtTexto.setMaxWidth(500);
 
         TextField txtPergunta = new TextField();
-        txtPergunta.setPromptText("O que fazer com o texto? (resumir, corrigir, traduzir, perguntar...)");
+        txtPergunta.setPromptText("O que fazer com o texto ou a imagem? (resumir, descrever, ler o texto, traduzir...)");
         ThemeManager.instalarCampoTexto(txtPergunta);
         txtPergunta.setMaxWidth(500);
 
         Button btnAnexar = botaoSecundario("📎 Anexar Imagem (opcional)");
 
-        Label lblNomeArquivo = new Label("Nenhuma imagem anexada.");
+        Label lblNomeArquivo = new Label(imagemAnexadaBiblioteca != null
+                ? "Arquivo: " + imagemAnexadaBiblioteca.getName() : "Nenhuma imagem anexada.");
         lblNomeArquivo.setStyle(ThemeManager.getSubtituloStyle());
 
         ImageView imgPreview = new ImageView();
         imgPreview.setFitWidth(120);
         imgPreview.setFitHeight(120);
         imgPreview.setPreserveRatio(true);
+        if (imagemAnexadaBiblioteca != null) {
+            imgPreview.setImage(new Image(imagemAnexadaBiblioteca.toURI().toString()));
+        }
 
         btnAnexar.setOnAction(e -> {
             FileChooser fileChooser = new FileChooser();
             fileChooser.setTitle("Selecionar Imagem");
             fileChooser.getExtensionFilters().add(
-                    new FileChooser.ExtensionFilter("Imagens", "*.png", "*.jpg", "*.jpeg")
+                    new FileChooser.ExtensionFilter("Imagens", "*.png", "*.jpg", "*.jpeg", "*.webp")
             );
             File file = fileChooser.showOpenDialog(stagePrincipal);
             if (file != null) {
@@ -659,12 +680,18 @@ public class ChatView {
                 sb.append("Texto do usuário:\n").append(texto).append("\n\n");
             }
             if (imagemAnexadaBiblioteca != null) {
-                sb.append("[O usuário anexou a imagem '").append(imagemAnexadaBiblioteca.getName()).append("']\n\n");
+                sb.append("O usuário anexou uma imagem. Analise a imagem.\n\n");
             }
             sb.append("Pedido: ").append(pedido.isEmpty() ? "Analise e comente o conteúdo acima." : pedido);
 
             List<Mensagem> historico = new ArrayList<>();
             historico.add(new Mensagem(sb.toString(), true));
+
+            // A imagem agora é realmente enviada à IA (antes só o nome do arquivo ia no texto).
+            final List<File> imagensDaVez = imagemAnexadaBiblioteca != null
+                    ? List.of(imagemAnexadaBiblioteca) : new ArrayList<>();
+            final String personalidadeNaHora = personalidadeIA;
+            final String idiomaNaHora = idioma;
 
             lblRespostaIA.setText("Analisando e pensando...");
             btnEnviarIA.setDisable(true);
@@ -672,7 +699,7 @@ public class ChatView {
             Task<String> taskAnalise = new Task<>() {
                 @Override
                 protected String call() throws Exception {
-                    return aiService.gerarResposta(historico, personalidadeIA, idioma);
+                    return aiService.gerarRespostaComRAG(historico, personalidadeNaHora, idiomaNaHora, null, imagensDaVez);
                 }
             };
 
@@ -759,6 +786,18 @@ public class ChatView {
     //  Chat
     // ------------------------------------------------------------------
 
+    /** Mostra, acima do campo de texto, o que está anexado (documento e/ou imagens). */
+    private void atualizarAvisoAnexos() {
+        List<String> partes = new ArrayList<>();
+        if (documentoAnexado != null) {
+            partes.add("📄 " + documentoAnexado.getName());
+        }
+        if (!imagensAnexadas.isEmpty()) {
+            partes.add("🖼 " + imagensAnexadas.size() + " imagem(ns)");
+        }
+        lblNomeDocumento.setText(String.join("   ", partes));
+    }
+
     private BorderPane criarLayoutChat() {
         chatContainer = new VBox(15);
         chatContainer.setPadding(new Insets(20));
@@ -771,9 +810,11 @@ public class ChatView {
 
         carregarMensagensNaTela();
 
-        // Botão para anexar documentos (PDF, Word, TXT) na barra do chat
+        // Botão para anexar documentos (PDF, Word, TXT)
         Button btnAnexarDoc = botaoSecundario("📎 Doc");
         btnAnexarDoc.setTooltip(new Tooltip("Anexar documento para R.A.G. (PDF, Word, TXT)"));
+
+
 
         lblNomeDocumento.setStyle("-fx-text-fill: " + ThemeManager.getCorSucesso() + "; -fx-font-size: 11px;");
 
@@ -786,12 +827,14 @@ public class ChatView {
             File arquivoSelecionado = fileChooser.showOpenDialog(stagePrincipal);
             if (arquivoSelecionado != null) {
                 documentoAnexado = arquivoSelecionado;
-                lblNomeDocumento.setText("📄 " + arquivoSelecionado.getName());
+                atualizarAvisoAnexos();
             }
         });
 
+
+
         txtMensagem = new TextField();
-        txtMensagem.setPromptText("Digite sua mensagem (com ou sem documento)...");
+        txtMensagem.setPromptText("Digite sua mensagem (com ou sem documento/imagem)...");
         ThemeManager.instalarCampoTexto(txtMensagem);
         HBox.setHgrow(txtMensagem, Priority.ALWAYS);
 
@@ -799,14 +842,25 @@ public class ChatView {
 
         btnEnviar.setOnAction(e -> {
             String texto = txtMensagem.getText().trim();
-            if (texto.isEmpty() && documentoAnexado == null) return;
+            if (texto.isEmpty() && documentoAnexado == null && imagensAnexadas.isEmpty()) return;
 
             if (conversaAtual == null) {
-                String titulo = texto.length() > 25 ? texto.substring(0, 25) + "..." : (documentoAnexado != null ? documentoAnexado.getName() : "Conversa");
+                String base = !texto.isEmpty() ? texto
+                        : (documentoAnexado != null ? documentoAnexado.getName() : "Análise de imagem");
+                String titulo = base.length() > 25 ? base.substring(0, 25) + "..." : base;
                 conversaAtual = new Conversas(usuario.getEmail(), titulo);
             }
 
             txtMensagem.clear();
+
+            // Copia as imagens desta mensagem e limpa os anexos da barra.
+            final List<File> imagensDaVez = new ArrayList<>(imagensAnexadas);
+            imagensAnexadas.clear();
+
+            // Só imagem, sem texto: gera um pedido padrão para a IA.
+            if (texto.isEmpty() && documentoAnexado == null && !imagensDaVez.isEmpty()) {
+                texto = "Analise a(s) imagem(ns) anexada(s) e descreva o que você vê.";
+            }
 
             String textoDocumento = null;
             if (documentoAnexado != null) {
@@ -816,7 +870,15 @@ public class ChatView {
                 conversaAtual.getMensagens().add(new Mensagem(avisoDoc, true));
 
                 documentoAnexado = null;
-                lblNomeDocumento.setText("");
+            }
+            atualizarAvisoAnexos();
+
+            // O aviso das imagens vem ANTES do texto, para o texto ser a última mensagem do usuário
+            // (é nela que as imagens são anexadas na chamada à IA).
+            if (!imagensDaVez.isEmpty()) {
+                String avisoImg = "[" + imagensDaVez.size() + " imagem(ns) anexada(s)]";
+                adicionarBalao(chatContainer, avisoImg, true);
+                conversaAtual.getMensagens().add(new Mensagem(avisoImg, true));
             }
 
             if (!texto.isEmpty()) {
@@ -824,7 +886,9 @@ public class ChatView {
                 conversaAtual.getMensagens().add(new Mensagem(texto, true));
             }
 
-            if (texto.toLowerCase().startsWith("/imagem") || texto.toLowerCase().startsWith("imagem:") || texto.toLowerCase().contains("gerar imagem")) {
+            if (imagensDaVez.isEmpty() && (texto.toLowerCase().startsWith("/imagem")
+                    || texto.toLowerCase().startsWith("imagem:")
+                    || texto.toLowerCase().contains("gerar imagem"))) {
                 String aviso = "Para gerar imagens, por favor acesse a aba '🎨 Imagens' no menu lateral esquerdo!";
                 adicionarBalao(chatContainer, aviso, false);
                 conversaAtual.getMensagens().add(new Mensagem(aviso, false));
@@ -847,7 +911,8 @@ public class ChatView {
             Task<String> taskGroq = new Task<>() {
                 @Override
                 protected String call() throws Exception {
-                    return aiService.gerarRespostaComRAG(historico, personalidadeNaHora, idiomaNaHora, contextoRAG);
+                    return aiService.gerarRespostaComRAG(historico, personalidadeNaHora, idiomaNaHora,
+                            contextoRAG, imagensDaVez);
                 }
             };
 
@@ -865,7 +930,9 @@ public class ChatView {
 
             taskGroq.setOnFailed(event -> {
                 chatContainer.getChildren().remove(lblDigitando);
-                adicionarBalao(chatContainer, "Erro de conexão com a Groq.", false);
+                Throwable erro = taskGroq.getException();
+                String detalhe = erro != null && erro.getMessage() != null ? " (" + erro.getMessage() + ")" : "";
+                adicionarBalao(chatContainer, "Erro ao falar com a IA" + detalhe, false);
             });
 
             Thread t = new Thread(taskGroq);
@@ -875,7 +942,8 @@ public class ChatView {
 
         txtMensagem.setOnAction(e -> btnEnviar.fire());
 
-        VBox inputContainer = new VBox(4, lblNomeDocumento, new HBox(10, btnAnexarDoc, txtMensagem, btnEnviar));
+        VBox inputContainer = new VBox(4, lblNomeDocumento,
+                new HBox(10, btnAnexarDoc,  txtMensagem, btnEnviar));
         inputContainer.setPadding(new Insets(10, 15, 15, 15));
         HBox.setHgrow(inputContainer, Priority.ALWAYS);
         HBox inputBar = new HBox(inputContainer);

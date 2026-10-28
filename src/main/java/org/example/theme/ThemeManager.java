@@ -11,6 +11,7 @@ import java.util.prefs.Preferences;
 
 /**
  * Gerencia o tema (claro/escuro) e gera os estilos inline do JavaFX.
+ * Paleta baseada na logo da Luna IA (azul-marinho + degradê azul/violeta).
  * Requer Java 16+ (usa record).
  */
 public final class ThemeManager {
@@ -37,16 +38,16 @@ public final class ThemeManager {
 
     public enum Tema {
         ESCURO(new Paleta(
-                "#0b1120", "#0f172a", "#1a2338", "#243049", "#263247",
-                "#e8edf6", "#8b98b1", "#64718a",
-                "#6d8dff", "#8aa5ff", "#0b1120",
-                "rgba(0,0,0,0.35)")),
+                "#070920", "#0a0d2c", "#121642", "#1c2158", "#262c6b",
+                "#eef0ff", "#9aa3d6", "#6f78b0",
+                "#7c6cff", "#9a8cff", "#ffffff",
+                "rgba(0,0,0,0.45)")),
 
         CLARO(new Paleta(
-                "#f6f8fb", "#eaeef5", "#ffffff", "#e1e7f1", "#d8e0ec",
-                "#0f172a", "#5b6980", "#8896ab",
-                "#3b5bdb", "#2f4bc4", "#ffffff",
-                "rgba(15,23,42,0.10)"));
+                "#f5f4ff", "#ebe9fb", "#ffffff", "#e0ddf7", "#d6d2f0",
+                "#14163a", "#5d6194", "#8c90b8",
+                "#5b4fe0", "#4a3fc8", "#ffffff",
+                "rgba(20,22,58,0.12)"));
 
         private final Paleta paleta;
 
@@ -130,6 +131,21 @@ public final class ThemeManager {
 
     private static String css(String... declaracoes) {
         return String.join(" ", declaracoes);
+    }
+
+    /**
+     * Degradê da logo (azul → violeta), usado em botões de ação e no balão do usuário.
+     * Também serve para a tela de login: "-fx-background-color: " + ThemeManager.getGradienteLogo(false)
+     */
+    public static String getGradienteLogo(boolean hover) {
+        if (temaAtual == Tema.ESCURO) {
+            return hover
+                    ? "linear-gradient(to bottom right, #6a85ff, #ab82ff)"
+                    : "linear-gradient(to bottom right, #5371fe, #9b6bff)";
+        }
+        return hover
+                ? "linear-gradient(to bottom right, #3f56d6, #7a4fd6)"
+                : "linear-gradient(to bottom right, #4a63e8, #8657e6)";
     }
 
     // ------------------------------------------------------------------
@@ -301,7 +317,7 @@ public final class ThemeManager {
     public static String getBalaoUsuarioStyle() {
         return css(
                 FONTE,
-                "-fx-background-color: " + p().destaque() + ";",
+                "-fx-background-color: " + getGradienteLogo(false) + ";",
                 "-fx-text-fill: " + p().textoSobreDestaque() + ";",
                 "-fx-font-size: 14px;",
                 "-fx-line-spacing: 3px;",
@@ -346,7 +362,7 @@ public final class ThemeManager {
     public static String getBotaoEnviarStyle(boolean hover) {
         return css(
                 FONTE,
-                "-fx-background-color: " + (hover ? p().destaqueHover() : p().destaque()) + ";",
+                "-fx-background-color: " + getGradienteLogo(hover) + ";",
                 "-fx-text-fill: " + p().textoSobreDestaque() + ";",
                 "-fx-font-size: 14px;",
                 "-fx-font-weight: 600;",
@@ -403,7 +419,7 @@ public final class ThemeManager {
     public static String getBotaoFiltroStyle(boolean ativo) {
         return css(
                 FONTE,
-                "-fx-background-color: " + (ativo ? p().destaque() : p().superficie()) + ";",
+                "-fx-background-color: " + (ativo ? getGradienteLogo(false) : p().superficie()) + ";",
                 "-fx-text-fill: " + (ativo ? p().textoSobreDestaque() : p().textoSecundario()) + ";",
                 "-fx-font-size: 11px;",
                 "-fx-font-weight: " + (ativo ? "600" : "normal") + ";",

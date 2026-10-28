@@ -36,17 +36,22 @@ public class Main extends Application {
 
         JavaBridge bridge = new JavaBridge(stage);
 
+
         engine.getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
             if (newState == Worker.State.SUCCEEDED) {
-                try {
-                    JSObject window = (JSObject) engine.executeScript("window");
-                    window.setMember("javaConnector", bridge);
-                    System.out.println("-> JavaBridge conectado com sucesso ao JavaScript!");
-                } catch (Exception e) {
-                    System.err.println("❌ Erro ao injetar JavaBridge: " + e.getMessage());
-                }
+                Platform.runLater(() -> {
+                    try {
+                        JSObject window = (JSObject) engine.executeScript("window");
+                        window.setMember("javaConnector", bridge);
+                        System.out.println("-> JavaBridge conectado com sucesso ao JavaScript!");
+                    } catch (Exception e) {
+                        System.err.println("Erro ao injetar JavaBridge: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                });
             }
         });
+
 
         URL splashUrl = getClass().getResource("/splash/splash.html");
         if (splashUrl == null) {

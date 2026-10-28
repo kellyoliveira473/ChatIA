@@ -1,5 +1,11 @@
 package org.example.service;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -7,7 +13,9 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
 import java.util.List;
+import javax.imageio.ImageIO;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.example.model.Mensagem;
@@ -17,18 +25,16 @@ public class AIService {
     private static final String GROQ_API_KEY = limparChave(System.getenv("GROQ_API_KEY"));
     private static final String GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-    // llama-3.3-70b-versatile foi descontinuado pela Groq (16/08/2026).
-    // Substituto recomendado: openai/gpt-oss-120b (alternativa: qwen/qwen3.6-27b).
-    // Para trocar sem recompilar, defina a variável de ambiente GROQ_MODEL.
+    // Modelo de texto (llama3-70b-8192 e llama-3.3-70b-versatile foram descontinuados pela Groq)
     private static final String DEFAULT_MODEL = "openai/gpt-oss-120b";
-    private static final String MODEL = resolverModelo();
+    private static final String MODEL = lerEnv("GROQ_MODEL", DEFAULT_MODEL);
 
-    // Pesquisa web (Tavily). Defina a variável de ambiente TAVILY_API_KEY.
-    private static final String TAVILY_API_KEY = limparChave(System.getenv("TAVILY_API_KEY"));
-    private static final String TAVILY_URL = "https://api.tavily.com/search";
-    private static final int MAX_RESULTADOS_WEB = 3;
-    private static final int MAX_CHARS_POR_RESULTADO = 600;
-    private static final int MAX_CHARS_CONSULTA = 300;
+    // Modelo multimodal (aceita imagem). Confirme o ID atual em https://console.groq.com/docs/models
+    private static final String DEFAULT_VISION_MODEL = "qwen/qwen3.8-27b";
+    private static final String VISION_MODEL = lerEnv("GROQ_VISION_MODEL", DEFAULT_VISION_MODEL);
+
+    private static final int MAX_IMAGENS = 3;
+    private static final int LADO_MAX_IMAGEM = 1600;
 
     private final HttpClient httpClient;
 
@@ -38,251 +44,191 @@ public class AIService {
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
 
-        // Diagnóstico temporário (não expõe a chave inteira). Remova depois de funcionar.
         if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
             System.err.println("AVISO: GROQ_API_KEY não definida.");
-        } else {
-            int n = GROQ_API_KEY.length();
-            System.err.println("Groq key: tamanho=" + n
-                    + ", início=" + GROQ_API_KEY.substring(0, Math.min(4, n))
-                    + ", fim=" + GROQ_API_KEY.substring(Math.max(0, n - 4)));
-        }
-
-        if (TAVILY_API_KEY == null || TAVILY_API_KEY.isBlank()) {
-            System.err.println("AVISO: TAVILY_API_KEY não definida. A pesquisa na web está desativada.");
-        } else {
-            // Diagnóstico temporário (não expõe a chave). Remova depois de funcionar.
-            System.err.println("Tavily key: tamanho=" + TAVILY_API_KEY.length()
-                    + ", início=" + TAVILY_API_KEY.substring(0, Math.min(5, TAVILY_API_KEY.length())));
         }
     }
 
-    // Remove espaços, quebras de linha e aspas que costumam vir junto da variável de ambiente.
     private static String limparChave(String valor) {
-        if (valor == null) {
-            return null;
-        }
+        if (valor == null) return null;
         return valor.trim().replaceAll("^[\"']+|[\"']+$", "").trim();
     }
 
-    private static String resolverModelo() {
-        String env = System.getenv("GROQ_MODEL");
-        return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;
+    private static String lerEnv(String nome, String padrao) {
+        String env = System.getenv(nome);
+        return (env != null && !env.isBlank()) ? env.trim() : padrao;
     }
 
     public String gerarResposta(List<Mensagem> historico, String personalidade, String idioma) throws Exception {
-        return gerarRespostaComRAG(historico, personalidade, idioma, null);
+        return gerarRespostaComRAG(historico, personalidade, idioma, null, null);
     }
 
-    public String gerarRespostaComRAG(List<Mensagem> historico, String personalidade, String idioma, String contextoDocumento) throws Exception {
+    public String gerarRespostaComRAG(List<Mensagem> historico, String personalidade, String idioma,
+                                      String contextoDocumento) throws Exception {
+        return gerarRespostaComRAG(historico, personalidade, idioma, contextoDocumento, null);
+    }
+
+    public String gerarRespostaComRAG(List<Mensagem> historico, String personalidade, String idioma,
+                                      String contextoDocumento, List<File> imagens) throws Exception {
         if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
             return "Erro: a variável de ambiente GROQ_API_KEY não está definida.";
         }
 
-        // Pesquisa rápida na web antes de responder (falhas não interrompem a resposta)
-        String resultadosWeb = pesquisarNaWeb(ultimaPerguntaDoUsuario(historico));
+        boolean temImagens = imagens != null && !imagens.isEmpty();
 
-        String hoje = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
-
-        JSONArray messagesArray = new JSONArray();
-
-        StringBuilder conteudoSistema = new StringBuilder();
-        conteudoSistema.append("Você é a Luna IA, uma assistente virtual extremamente inteligente, precisa e direta. ")
-                .append("Adote um tom ")
-                .append(personalidade)
-                .append(". Responda sempre utilizando o idioma: ")
-                .append(idioma)
-                .append(". CONTEXTO TEMPORAL: a data de hoje é ")
-                .append(hoje)
-                .append(". ")
-                .append("REGRA ESTRITA DE FORMATAÇÃO: NUNCA utilize asteriscos (*), negritos (**) nem marcadores markdown. Escreva apenas texto puro, limpo e contínuo.");
-
-        if (resultadosWeb != null) {
-            conteudoSistema.append("\n\n[Resultados de pesquisa na web, obtidos agora]:\n")
-                    .append(resultadosWeb)
-                    .append("\nUse esses resultados como fonte principal para fatos atuais e verificáveis. ")
-                    .append("Se eles não responderem à pergunta, diga que não encontrou informação confiável em vez de inventar. ")
-                    .append("Quando for útil, mencione o nome do site da fonte em texto puro.");
-        }
-
-        if (contextoDocumento != null && !contextoDocumento.isBlank()) {
-            conteudoSistema.append("\n\n[Contexto extraído do documento do usuário]:\n")
-                    .append(contextoDocumento)
-                    .append("\nUtilize as informações acima com máxima precisão para responder.");
-        }
-
-        JSONObject systemMessage = new JSONObject();
-        systemMessage.put("role", "system");
-        systemMessage.put("content", conteudoSistema.toString());
-        messagesArray.put(systemMessage);
+        JSONArray messages = new JSONArray();
+        messages.put(new JSONObject()
+                .put("role", "system")
+                .put("content", montarPromptSistema(personalidade, idioma, contextoDocumento, temImagens)));
 
         if (historico != null) {
-            for (Mensagem m : historico) {
-                JSONObject msgObj = new JSONObject();
-                msgObj.put("role", m.isUsuario() ? "user" : "assistant");
-                msgObj.put("content", m.getTexto());
-                messagesArray.put(msgObj);
+            int ultimoIndex = historico.size() - 1;
+            for (int i = 0; i < historico.size(); i++) {
+                Mensagem m = historico.get(i);
+                JSONObject obj = new JSONObject().put("role", m.isUsuario() ? "user" : "assistant");
+
+                if (temImagens && i == ultimoIndex && m.isUsuario()) {
+                    obj.put("content", montarConteudoComImagens(m.getTexto(), imagens));
+                } else {
+                    obj.put("content", m.getTexto());
+                }
+                messages.put(obj);
             }
         }
 
-        JSONObject requestBody = new JSONObject();
-        requestBody.put("model", MODEL);
-        requestBody.put("messages", messagesArray);
-        requestBody.put("temperature", 0.1); // Mantém baixa para evitar alucinações
+        String modeloUsado = temImagens ? VISION_MODEL : MODEL;
 
-        HttpResponse<String> response = enviar(requestBody);
+        JSONObject body = new JSONObject()
+                .put("model", modeloUsado)
+                .put("messages", messages)
+                .put("temperature", 0.1);
+
+        HttpResponse<String> response = enviar(body);
 
         if (response.statusCode() == 200) {
-            JSONObject jsonResponse = new JSONObject(response.body());
-            JSONArray choices = jsonResponse.getJSONArray("choices");
+            JSONArray choices = new JSONObject(response.body()).getJSONArray("choices");
             if (choices.length() > 0) {
-                String respostaBruta = choices.getJSONObject(0).getJSONObject("message").getString("content");
-                return limparFormatacao(respostaBruta);
+                String bruta = choices.getJSONObject(0).getJSONObject("message").optString("content", "");
+                String limpa = limparFormatacao(bruta);
+                if (!limpa.isBlank()) return limpa;
             }
         } else {
             System.err.println("--- ERRO GROQ API ---");
-            System.err.println("Modelo: " + MODEL);
+            System.err.println("Modelo: " + modeloUsado);
             System.err.println("Código HTTP: " + response.statusCode());
             System.err.println("Resposta: " + response.body());
+            return "Não consegui analisar a solicitação (erro " + response.statusCode() + "). "
+                    + "Verifique o console para mais detalhes.";
         }
-
         return "Erro (" + response.statusCode() + "): Falha na comunicação com a API da Groq.";
     }
 
     public String melhorarPromptImagem(String ideiaUsuario) throws Exception {
-        if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) {
-            return ideiaUsuario;
-        }
+        if (GROQ_API_KEY == null || GROQ_API_KEY.isBlank()) return ideiaUsuario;
 
-        JSONArray messagesArray = new JSONArray();
-        JSONObject systemMessage = new JSONObject();
-        systemMessage.put("role", "system");
-        systemMessage.put("content", "Você é um especialista em engenharia de prompts para geração de imagens por IA. Transforme a ideia simples fornecida pelo usuário em um prompt visual rico, detalhado e esteticamente incrível em inglês. Retorne APENAS o texto do prompt gerado, sem introduções ou explicações.");
-        messagesArray.put(systemMessage);
+        JSONArray messages = new JSONArray()
+                .put(new JSONObject().put("role", "system").put("content",
+                        "Você é um especialista em engenharia de prompts para geração de imagens por IA. "
+                                + "Transforme a ideia simples do usuário em um prompt visual rico e detalhado, em inglês. "
+                                + "Retorne APENAS o texto do prompt, sem introduções ou explicações."))
+                .put(new JSONObject().put("role", "user").put("content", ideiaUsuario));
 
-        JSONObject userMessage = new JSONObject();
-        userMessage.put("role", "user");
-        userMessage.put("content", ideiaUsuario);
-        messagesArray.put(userMessage);
+        JSONObject body = new JSONObject()
+                .put("model", MODEL)
+                .put("messages", messages)
+                .put("temperature", 0.7);
 
-        JSONObject requestBody = new JSONObject();
-        requestBody.put("model", MODEL);
-        requestBody.put("messages", messagesArray);
-        requestBody.put("temperature", 0.7);
-
-        HttpResponse<String> response = enviar(requestBody);
-
+        HttpResponse<String> response = enviar(body);
         if (response.statusCode() == 200) {
-            JSONObject jsonResponse = new JSONObject(response.body());
-            JSONArray choices = jsonResponse.getJSONArray("choices");
+            JSONArray choices = new JSONObject(response.body()).getJSONArray("choices");
             if (choices.length() > 0) {
-                String promptMelhorado = choices.getJSONObject(0).getJSONObject("message").getString("content").trim();
-                return promptMelhorado.replace("\"", "").replace("*", "");
+                String p = choices.getJSONObject(0).getJSONObject("message").getString("content").trim();
+                return p.replace("\"", "").replace("*", "");
             }
-        } else {
-            System.err.println("--- ERRO GROQ API (melhorarPromptImagem) ---");
-            System.err.println("Modelo: " + MODEL);
-            System.err.println("Código HTTP: " + response.statusCode());
-            System.err.println("Resposta: " + response.body());
+        }
+        return ideiaUsuario;
+    }
+
+    private String montarPromptSistema(String personalidade, String idioma, String contextoDocumento, boolean temImagens) {
+        String hoje = LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+        StringBuilder s = new StringBuilder();
+
+        s.append("Você é a Luna IA, uma assistente virtual precisa, confiável e direta. ")
+                .append("Tom: ").append(personalidade).append(". ")
+                .append("Responda sempre no idioma: ").append(idioma).append(". ")
+                .append("A data de hoje é ").append(hoje).append(".\n\n")
+                .append("REGRAS DE PRECISÃO:\n")
+                .append("1. Responda exatamente o que foi perguntado.\n")
+                .append("2. Nunca invente fatos. Seja concisa.\n")
+                .append("3. NUNCA use asteriscos, negrito, títulos com # nem marcadores markdown. Escreva texto puro.");
+
+        if (temImagens) {
+            s.append("\n\nREGRAS PARA IMAGENS: O usuário anexou imagem(ns). ")
+                    .append("Descreva, analise e responda com total fidelidade ao que é visível.");
         }
 
-        return ideiaUsuario;
+        if (contextoDocumento != null && !contextoDocumento.isBlank()) {
+            s.append("\n\n[Contexto do documento]:\n").append(contextoDocumento);
+        }
+        return s.toString();
+    }
+
+    private JSONArray montarConteudoComImagens(String texto, List<File> imagens) throws Exception {
+        JSONArray partes = new JSONArray();
+        String pedido = (texto == null || texto.isBlank()) ? "Analise esta imagem." : texto;
+
+        partes.put(new JSONObject().put("type", "text").put("text", pedido));
+
+        int n = 0;
+        for (File f : imagens) {
+            if (n++ >= MAX_IMAGENS) break;
+            String dataUrl = imagemParaDataUrl(f);
+
+            JSONObject imageUrlObj = new JSONObject().put("url", dataUrl);
+            partes.put(new JSONObject()
+                    .put("type", "image_url")
+                    .put("image_url", imageUrlObj));
+        }
+        return partes;
+    }
+
+    private String imagemParaDataUrl(File arquivo) throws Exception {
+        BufferedImage original = ImageIO.read(arquivo);
+        if (original == null) {
+            throw new IllegalArgumentException("Formato de imagem não suportado: " + arquivo.getName());
+        }
+        int w = original.getWidth(), h = original.getHeight();
+        double escala = Math.min(1.0, (double) LADO_MAX_IMAGEM / Math.max(w, h));
+        int nw = Math.max(1, (int) Math.round(w * escala));
+        int nh = Math.max(1, (int) Math.round(h * escala));
+
+        BufferedImage rgb = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = rgb.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        g.setColor(Color.WHITE);
+        g.fillRect(0, 0, nw, nh);
+        g.drawImage(original, 0, 0, nw, nh, null);
+        g.dispose();
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ImageIO.write(rgb, "jpg", out);
+        return "data:image/jpeg;base64," + Base64.getEncoder().encodeToString(out.toByteArray());
     }
 
     private HttpResponse<String> enviar(JSONObject requestBody) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(GROQ_URL))
+                .timeout(Duration.ofSeconds(90))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + GROQ_API_KEY.trim())
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody.toString()))
                 .build();
-
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    // Retorna a última mensagem enviada pelo usuário no histórico (ou null).
-    private String ultimaPerguntaDoUsuario(List<Mensagem> historico) {
-        if (historico == null) {
-            return null;
-        }
-        for (int i = historico.size() - 1; i >= 0; i--) {
-            Mensagem m = historico.get(i);
-            if (m.isUsuario()) {
-                return m.getTexto();
-            }
-        }
-        return null;
-    }
-
-    // Pesquisa breve na web via Tavily. Retorna null se a pesquisa estiver
-    // desativada ou falhar, para que o chat continue respondendo normalmente.
-    private String pesquisarNaWeb(String pergunta) {
-        if (TAVILY_API_KEY == null || TAVILY_API_KEY.isBlank() || pergunta == null || pergunta.isBlank()) {
-            return null;
-        }
-
-        try {
-            String consulta = pergunta.trim();
-            if (consulta.length() > MAX_CHARS_CONSULTA) {
-                consulta = consulta.substring(0, MAX_CHARS_CONSULTA);
-            }
-
-            JSONObject body = new JSONObject();
-            body.put("query", consulta);
-            body.put("search_depth", "basic");
-            body.put("max_results", MAX_RESULTADOS_WEB);
-            body.put("include_answer", false);
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(TAVILY_URL))
-                    .timeout(Duration.ofSeconds(10))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + TAVILY_API_KEY.trim())
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() != 200) {
-                System.err.println("--- ERRO TAVILY ---");
-                System.err.println("Código HTTP: " + response.statusCode());
-                System.err.println("Resposta: " + response.body());
-                return null;
-            }
-
-            JSONArray results = new JSONObject(response.body()).optJSONArray("results");
-            if (results == null || results.length() == 0) {
-                return null;
-            }
-
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < results.length(); i++) {
-                JSONObject r = results.getJSONObject(i);
-                String conteudo = r.optString("content", "").trim();
-                if (conteudo.length() > MAX_CHARS_POR_RESULTADO) {
-                    conteudo = conteudo.substring(0, MAX_CHARS_POR_RESULTADO) + "...";
-                }
-                sb.append(i + 1).append(") ")
-                        .append(r.optString("title", "Sem título"))
-                        .append(" (").append(r.optString("url", "")).append(")\n")
-                        .append(conteudo).append("\n\n");
-            }
-            return sb.toString().trim();
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
-        } catch (Exception e) {
-            System.err.println("Falha na pesquisa web: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // Remove só a formatação markdown (asteriscos e títulos com #),
-    // preservando underscores e # legítimos (nomes de variáveis, URLs, hashtags).
     private String limparFormatacao(String texto) {
         return texto
+                .replaceAll("(?s)<think>.*?</think>", "")
                 .replace("*", "")
                 .replaceAll("(?m)^#+\\s*", "")
                 .trim();

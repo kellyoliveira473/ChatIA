@@ -4,9 +4,15 @@ import org.example.model.Usuario;
 import org.example.repository.UsuarioRepository;
 import org.mindrot.jbcrypt.BCrypt;
 
+import java.util.regex.Pattern;
+
 public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
+
+    // Regex: Pelo menos 1 letra maiúscula, 1 caractere especial e comprimento mínimo de 8 caracteres
+    private static final String PASSWORD_PATTERN = "^(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).{8,}$";
+    private static final Pattern passwordPattern = Pattern.compile(PASSWORD_PATTERN);
 
     public UsuarioService(UsuarioRepository usuarioRepository) {
         this.usuarioRepository = usuarioRepository;
@@ -22,6 +28,12 @@ public class UsuarioService {
         if (usuario.getSenha() == null || usuario.getSenha().isBlank()) {
             throw new RuntimeException("Senha é obrigatória");
         }
+
+        // Validação dos padrões de segurança da senha
+        if (!passwordPattern.matcher(usuario.getSenha()).matches()) {
+            throw new RuntimeException("A senha deve ter no mínimo 8 caracteres, conter pelo menos 1 letra maiúscula e pelo menos 1 caractere especial.");
+        }
+
         if (!usuario.getSenha().equals(confirmacao)) {
             throw new RuntimeException("As senhas não coincidem");
         }
