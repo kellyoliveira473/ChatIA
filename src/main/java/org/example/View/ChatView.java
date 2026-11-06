@@ -1008,6 +1008,15 @@ public class ChatView {
         return c.getId() != null && c.getId().equals(conversaAtual.getId());
     }
 
+    /** Alerta de confirmação no tema atual. Retorna true se a pessoa clicar em "Sim". */
+    private boolean confirmar(String titulo, String mensagem) {
+        Alert alerta = new Alert(Alert.AlertType.CONFIRMATION, mensagem, ButtonType.YES, ButtonType.NO);
+        alerta.setTitle(titulo);
+        alerta.setHeaderText(null);
+        aplicarTemaDialogo(alerta);
+        return alerta.showAndWait().orElse(ButtonType.NO) == ButtonType.YES;
+    }
+
     private void atualizarListaConversas(List<Conversas> conversas) {
         listaConversasContainer.getChildren().clear();
 
@@ -1032,24 +1041,26 @@ public class ChatView {
             HBox.setHgrow(lblTitulo, Priority.ALWAYS);
 
             itemBox.setOnMouseClicked(e -> {
+                // O clique direito não pode abrir a conversa: isso reconstrói a lista e fecha o menu de contexto.
+                if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY) return;
                 conversaAtual = c;
                 carregarMensagensNaTela();
                 mostrarTela(() -> layoutChatAtual);
                 aplicarFiltrosEAtualizar();
             });
 
-            ContextMenu contextMenu = new ContextMenu();
-            contextMenu.setStyle(ThemeManager.getControlesStyle());
-
-            MenuItem menuFavorito = new MenuItem(c.isFavorito() ? "Remover dos Favoritos" : "Favoritar");
-            menuFavorito.setOnAction(e -> {
+            // ---- Ações (usadas pelo menu de contexto E pelos botões) ----
+            Runnable acaoFavoritar = () -> {
+                String msg = c.isFavorito()
+                        ? "Remover \"" + c.getTitulo() + "\" dos favoritos?"
+                        : "Favoritar a conversa \"" + c.getTitulo() + "\"?";
+                if (!confirmar("Favoritos", msg)) return;
                 c.setFavorito(!c.isFavorito());
                 conversaRepository.salvar(c);
                 carregarConversasDoBanco();
-            });
+            };
 
-            MenuItem menuRenomear = new MenuItem("Renomear");
-            menuRenomear.setOnAction(e -> {
+            Runnable acaoRenomear = () -> {
                 TextInputDialog dialog = new TextInputDialog(c.getTitulo());
                 dialog.setTitle("Editar Conversa");
                 dialog.setHeaderText("Renomear título da conversa:");
@@ -1057,28 +1068,46 @@ public class ChatView {
                 aplicarTemaDialogo(dialog);
 
                 dialog.showAndWait().ifPresent(novoTitulo -> {
-                    if (!novoTitulo.isBlank()) {
-                        c.setTitulo(novoTitulo);
+                    if (!novoTitulo.isBlank()
+                            && confirmar("Renomear conversa", "Renomear para \"" + novoTitulo.trim() + "\"?")) {
+                        c.setTitulo(novoTitulo.trim());
                         conversaRepository.salvar(c);
                         carregarConversasDoBanco();
                     }
                 });
-            });
+            };
+
+            Runnable acaoDeletar = () -> {
+                if (c.getId() == null) return;
+
+                if (!confirmar("Apagar conversa",
+                        "Deseja apagar a conversa \"" + c.getTitulo() + "\"? Essa ação não pode ser desfeita.")) {
+                    return;
+                }
+
+                boolean eraAtual = ehConversaAtual(c);
+                conversaRepository.deletar(c.getId());
+                if (eraAtual) {
+                    iniciarNovaConversaVazia();
+                }
+                carregarConversasDoBanco();
+            };
+
+            // ---- Menu de contexto (botão direito) ----
+            ContextMenu contextMenu = new ContextMenu();
+            contextMenu.setStyle(ThemeManager.getControlesStyle());
+
+            MenuItem menuFavorito = new MenuItem(c.isFavorito() ? "Remover dos Favoritos" : "Favoritar");
+            menuFavorito.setOnAction(e -> acaoFavoritar.run());
+
+            MenuItem menuRenomear = new MenuItem("Renomear");
+            menuRenomear.setOnAction(e -> acaoRenomear.run());
 
             MenuItem menuDeletar = new MenuItem("Deletar");
             menuDeletar.setStyle("-fx-text-fill: " + ThemeManager.getCorErro() + ";");
-            menuDeletar.setOnAction(e -> {
-                if (c.getId() != null) {
-                    conversaRepository.deletar(c.getId());
-                    if (conversaAtual != null && conversaAtual.getId() != null && conversaAtual.getId().equals(c.getId())) {
-                        iniciarNovaConversaVazia();
-                    }
-                    carregarConversasDoBanco();
-                }
-            });
+            menuDeletar.setOnAction(e -> acaoDeletar.run());
 
             contextMenu.getItems().addAll(menuFavorito, menuRenomear, menuDeletar);
-
             itemBox.setOnContextMenuRequested(e -> contextMenu.show(itemBox, e.getScreenX(), e.getScreenY()));
 
             itemBox.getChildren().addAll(lblTitulo);
